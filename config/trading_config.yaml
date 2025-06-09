@@ -1,0 +1,186 @@
+# config/trading_config.yaml
+# ForexAI-EA Trading Configuration
+# Version: 1.0.0
+
+account:
+  initial_balance: 1000
+  currency: "USD"
+  
+# Risk Management
+risk_management:
+  # Per-trade risk
+  risk_per_trade: 0.015        # 1.5% of account balance
+  risk_per_trade_aggressive: 0.02  # 2% for high-confidence signals
+  
+  # Position limits
+  max_positions: 4             # Maximum simultaneous positions
+  max_lot_size: 0.2           # Maximum lot size per trade
+  
+  # Daily limits
+  max_daily_loss: 0.05        # 5% maximum daily loss
+  max_daily_trades: 8         # Maximum trades per day
+  
+  # Weekly/Monthly limits
+  max_weekly_loss: 0.10       # 10% maximum weekly loss
+  max_monthly_loss: 0.15      # 15% maximum monthly loss
+  
+  # Drawdown protection
+  max_drawdown: 0.20          # 20% maximum drawdown before stop
+  equity_protection: 0.80     # Stop trading at 80% of peak equity
+
+# Trading Pairs Configuration
+trading_pairs:
+  # Major pairs (Primary focus)
+  majors:
+    - symbol: "EURUSD"
+      enabled: true
+      risk_multiplier: 1.0
+      spread_limit: 2.0
+      min_volume: 1000
+    
+    - symbol: "GBPUSD" 
+      enabled: true
+      risk_multiplier: 1.0
+      spread_limit: 2.5
+      min_volume: 1000
+    
+    - symbol: "USDJPY"
+      enabled: true
+      risk_multiplier: 1.0
+      spread_limit: 2.0
+      min_volume: 1000
+    
+    - symbol: "USDCHF"
+      enabled: true
+      risk_multiplier: 0.8
+      spread_limit: 2.5
+      min_volume: 800
+    
+    - symbol: "AUDUSD"
+      enabled: true
+      risk_multiplier: 0.8
+      spread_limit: 2.5
+      min_volume: 800
+
+# Session Configuration
+sessions:
+  asian:
+    start_hour: 22
+    end_hour: 8
+    timezone: "GMT"
+    enabled: false  # Will enable in Phase 3
+    risk_multiplier: 0.67
+    pairs: ["USDJPY", "AUDUSD"]
+    strategy: "mean_reversion"
+  
+  london:
+    start_hour: 8
+    end_hour: 17
+    timezone: "GMT"
+    enabled: true
+    risk_multiplier: 1.0
+    pairs: ["EURUSD", "GBPUSD", "USDCHF"]
+    strategy: "trend_following"
+  
+  newyork:
+    start_hour: 13
+    end_hour: 22
+    timezone: "GMT" 
+    enabled: true
+    risk_multiplier: 1.33
+    pairs: ["EURUSD", "GBPUSD", "USDJPY"]
+    strategy: "momentum_breakout"
+
+# Signal Processing
+signals:
+  confidence_threshold: 0.7    # Minimum confidence for trade execution
+  prediction_interval: 300     # Prediction interval in seconds (5 minutes)
+  signal_timeout: 60          # Signal validity timeout in seconds
+  
+  # Signal filtering
+  filters:
+    spread_filter: true        # Filter by spread
+    volatility_filter: true    # Filter by market volatility
+    news_filter: false         # Will enable in Phase 3
+    correlation_filter: false  # Will enable in Phase 2
+
+# Position Management
+position_management:
+  # Position sizing
+  sizing_method: "fixed_risk"  # fixed_risk, kelly_criterion, volatility_based
+  
+  # Stop loss and take profit
+  stop_loss:
+    method: "atr_based"        # atr_based, fixed_pips, dynamic
+    atr_multiplier: 2.0
+    min_pips: 10
+    max_pips: 100
+  
+  take_profit:
+    method: "atr_based"        # atr_based, fixed_pips, risk_reward
+    atr_multiplier: 3.0
+    min_pips: 15
+    max_pips: 200
+    risk_reward_ratio: 1.5
+  
+  # Trailing stop
+  trailing_stop:
+    enabled: true
+    activation_pips: 20
+    trail_pips: 10
+
+# News and Economic Events (Phase 3)
+news_events:
+  enabled: false
+  halt_before_minutes: 30
+  halt_after_minutes: 15
+  
+  high_impact_events:
+    - "Interest Rate Decision"
+    - "Non-Farm Payrolls"
+    - "GDP Release"
+    - "CPI/Inflation"
+    - "FOMC Meeting"
+  
+  medium_impact_events:
+    - "Unemployment Rate"
+    - "Retail Sales"
+    - "Manufacturing PMI"
+
+# Manual Override Settings
+manual_override:
+  enabled: true
+  require_confirmation: true
+  emergency_stop: true
+  
+  # Override modes
+  modes:
+    - "full_auto"      # Complete automation
+    - "confirm_entry"  # Confirm entries only
+    - "confirm_exit"   # Confirm exits only
+    - "manual_only"    # Manual trading only
+
+# Performance Targets
+performance_targets:
+  monthly_return: 0.15        # 15% monthly target
+  win_rate: 0.65             # 65% win rate target
+  profit_factor: 1.5         # 1.5 profit factor target
+  sharpe_ratio: 1.2          # 1.2 Sharpe ratio target
+  max_drawdown: 0.15         # 15% maximum drawdown
+
+# Alerts and Notifications
+alerts:
+  enabled: true
+  
+  # Alert types
+  trade_alerts: true
+  risk_alerts: true
+  system_alerts: true
+  performance_alerts: true
+  
+  # Notification methods
+  methods:
+    mt5_alert: true
+    email: false      # Will configure later
+    telegram: false   # Will configure later
+    webhook: false    # Will configure later

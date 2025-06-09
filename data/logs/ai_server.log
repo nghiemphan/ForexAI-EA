@@ -1,0 +1,31 @@
+2025-06-08 14:57:08,135 - __main__ - INFO - AISocketServer initialized on localhost:8888
+2025-06-08 14:57:08,135 - __main__ - INFO - AI Socket Server started on localhost:8888
+2025-06-08 14:57:28,526 - __main__ - INFO - New connection from ('127.0.0.1', 50587)
+2025-06-08 14:57:28,526 - __main__ - INFO - New connection from ('127.0.0.1', 50588)
+2025-06-08 14:57:28,526 - __main__ - INFO - Client ('127.0.0.1', 50587) disconnected
+2025-06-08 14:57:28,526 - __main__ - INFO - Processing request: ping
+2025-06-08 14:57:28,526 - __main__ - INFO - Client ('127.0.0.1', 50588) disconnected
+2025-06-08 14:57:28,526 - __main__ - INFO - New connection from ('127.0.0.1', 50589)
+2025-06-08 14:57:28,542 - __main__ - INFO - Processing request: prediction
+2025-06-08 14:57:28,542 - __main__ - INFO - Client ('127.0.0.1', 50589) disconnected
+2025-06-08 14:57:28,542 - __main__ - INFO - New connection from ('127.0.0.1', 50590)
+2025-06-08 14:57:28,557 - __main__ - INFO - Processing request: health_check
+2025-06-08 14:57:28,557 - __main__ - INFO - Client ('127.0.0.1', 50590) disconnected
+2025-06-08 14:57:28,557 - __main__ - INFO - New connection from ('127.0.0.1', 50591)
+2025-06-08 14:57:28,557 - __main__ - ERROR - Invalid JSON received: Expecting value: line 1 column 1 (char 0)
+2025-06-08 14:57:28,557 - __main__ - INFO - Client ('127.0.0.1', 50591) disconnected
+2025-06-08 14:57:28,557 - __main__ - INFO - New connection from ('127.0.0.1', 50592)
+2025-06-08 14:57:28,557 - __main__ - INFO - Processing request: ping
+2025-06-08 14:57:28,557 - __main__ - INFO - New connection from ('127.0.0.1', 50593)
+2025-06-08 14:57:28,557 - __main__ - INFO - Client ('127.0.0.1', 50592) disconnected
+2025-06-08 14:57:28,557 - __main__ - INFO - Processing request: ping
+2025-06-08 14:57:28,557 - __main__ - INFO - New connection from ('127.0.0.1', 50594)
+2025-06-08 14:57:28,557 - __main__ - INFO - Client ('127.0.0.1', 50593) disconnected
+2025-06-08 14:57:28,557 - __main__ - INFO - New connection from ('127.0.0.1', 50595)
+2025-06-08 14:57:28,557 - __main__ - INFO - Processing request: ping
+2025-06-08 14:57:28,557 - __main__ - INFO - Processing request: ping
+2025-06-08 14:57:28,573 - __main__ - INFO - New connection from ('127.0.0.1', 50596)
+2025-06-08 14:57:28,573 - __main__ - INFO - Client ('127.0.0.1', 50594) disconnected
+2025-06-08 14:57:28,573 - __main__ - INFO - Client ('127.0.0.1', 50595) disconnected
+2025-06-08 14:57:28,573 - __main__ - INFO - Processing request: ping
+2025-06-08 14:57:28,573 - __main__ - INFO - Client ('127.0.0.1', 50596) disconnected

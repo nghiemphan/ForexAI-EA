@@ -1,0 +1,125 @@
+# config/settings.yaml
+# ForexAI-EA Main Configuration File
+# Version: 1.0.0
+
+project:
+  name: "ForexAI-EA"
+  version: "1.0.0"
+  environment: "development"  # development, testing, production
+  author: "Claude AI Developer"
+
+# Server Configuration
+server:
+  host: "localhost"
+  port: 8888
+  timeout: 30
+  max_connections: 10
+  heartbeat_interval: 60
+
+# Logging Configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file_path: "data/logs/forexai_ea.log"
+  max_file_size: "10MB"
+  backup_count: 5
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # Component-specific logging
+  components:
+    ai_engine: true
+    trading_engine: true
+    socket_server: true
+    data_processor: true
+
+# AI Model Configuration
+ai_models:
+  technical_indicators:
+    enabled: true
+    weight: 0.4
+    model_type: "RandomForest"
+    features:
+      - "ema_9"
+      - "ema_21" 
+      - "ema_50"
+      - "rsi_14"
+      - "macd_main"
+      - "macd_signal"
+      - "bb_upper"
+      - "bb_lower"
+      - "bb_position"
+      - "atr_14"
+  
+  volume_profile:
+    enabled: false  # Will be enabled in Phase 2
+    weight: 0.3
+    model_type: "XGBoost"
+    features:
+      - "poc_distance"
+      - "value_area_position"
+      - "vwap_slope"
+      - "volume_node_strength"
+  
+  smc_concepts:
+    enabled: false  # Will be enabled in Phase 2
+    weight: 0.2
+    model_type: "LightGBM"
+    features:
+      - "order_block_strength"
+      - "fvg_significance"
+      - "structure_break"
+      - "liquidity_sweep"
+  
+  session_analysis:
+    enabled: false  # Will be enabled in Phase 3
+    weight: 0.1
+    model_type: "LogisticRegression"
+    features:
+      - "session_bias"
+      - "time_score"
+      - "volatility_regime"
+
+# Data Configuration
+data:
+  analysis_period: 50  # Number of bars for analysis
+  buffer_size: 200     # Price buffer size
+  update_interval: 1   # Update interval in ticks
+  
+  # Data sources
+  sources:
+    primary: "MetaTrader5"
+    backup: "None"  # Will add backup sources later
+
+# Model Training Configuration
+training:
+  test_size: 0.2
+  validation_size: 0.1
+  random_state: 42
+  cross_validation_folds: 5
+  
+  # Model parameters
+  random_forest:
+    n_estimators: 100
+    max_depth: 10
+    min_samples_split: 5
+    random_state: 42
+  
+  xgboost:
+    n_estimators: 100
+    max_depth: 6
+    learning_rate: 0.1
+    random_state: 42
+
+# Performance Monitoring
+monitoring:
+  enabled: true
+  metrics_update_interval: 300  # 5 minutes
+  performance_window: 1440      # 24 hours in minutes
+  
+  # Metrics to track
+  metrics:
+    - "prediction_accuracy"
+    - "response_time"
+    - "model_confidence"
+    - "error_rate"
+    - "uptime"
+
