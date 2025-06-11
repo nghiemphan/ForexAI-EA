@@ -260,11 +260,12 @@ class CommunicationTester:
         
         return passed == total
 
+
 def quick_ai_test():
     """Quick test for AI prediction with sufficient data"""
-    import socket
-    import json
-    from datetime import datetime
+    print("\n" + "=" * 60)
+    print("🧪 QUICK AI PREDICTION TEST")
+    print("=" * 60)
     
     # Generate 100 price points
     sample_prices = [1.1000 + (i * 0.00001) for i in range(100)]
@@ -288,10 +289,21 @@ def quick_ai_test():
         result = json.loads(response)
         
         if result.get("status") == "success":
+            signal_names = {-1: "SELL", 0: "HOLD", 1: "BUY"}
+            signal = result.get('prediction', 0)
+            signal_name = signal_names.get(signal, "UNKNOWN")
+            
             print(f"✅ AI Prediction Success!")
-            print(f"   Signal: {result.get('prediction')}")
+            print(f"   Symbol: {result.get('symbol', 'N/A')}")
+            print(f"   Signal: {signal} ({signal_name})")
             print(f"   Confidence: {result.get('confidence', 0):.3f}")
-            print(f"   Time: {result.get('prediction_time_ms', 0):.1f}ms")
+            print(f"   Prediction Time: {result.get('prediction_time_ms', 0):.1f}ms")
+            
+            # Show some metadata if available
+            metadata = result.get('metadata', {})
+            if 'feature_count' in metadata:
+                print(f"   Features Used: {metadata['feature_count']}")
+            
             return True
         else:
             print(f"❌ AI Prediction Failed: {result}")
@@ -300,6 +312,7 @@ def quick_ai_test():
     except Exception as e:
         print(f"❌ Test failed: {e}")
         return False
+
 
 def main():
     """Main test function"""
@@ -313,6 +326,11 @@ def main():
     tester = CommunicationTester()
     success = tester.run_all_tests()
     
+    # Run additional AI test if main tests passed
+    if success:
+        ai_test_success = quick_ai_test()
+        if not ai_test_success:
+            success = False
     
     # Provide next steps
     print("\n" + "=" * 60)
@@ -321,10 +339,11 @@ def main():
     
     if success:
         print("1. ✅ Open MetaTrader 5")
-        print("2. ✅ Compile and attach ForexAI_EA_v1.mq5")
+        print("2. ✅ Compile and attach ForexAI_EA.mq5")
         print("3. ✅ Check EA logs for connection confirmation")
         print("4. ✅ Monitor EA behavior on demo account")
         print("5. ✅ Report any issues for resolution")
+        print("\n🚀 System ready for live trading!")
     else:
         print("1. ❌ Check AI server is running (python socket_server.py)")
         print("2. ❌ Verify firewall allows port 8888")
@@ -334,10 +353,6 @@ def main():
     
     print("\n📧 Contact developer if you need assistance!")
 
-if __name__ == "__main__":
-    main()
-    print("🧪 Quick AI Prediction Test")
-    quick_ai_test()
 
 # Additional utility functions for testing
 
@@ -359,6 +374,7 @@ def quick_ping_test(host="localhost", port=8888):
         
     except:
         return False
+
 
 def stress_test_server(host="localhost", port=8888, num_requests=100):
     """Stress test the server with multiple rapid requests"""
@@ -386,6 +402,7 @@ def stress_test_server(host="localhost", port=8888, num_requests=100):
     print(f"   Requests/Second: {num_requests/duration:.1f}")
     
     return success_count == num_requests
+
 
 def latency_test(host="localhost", port=8888, num_tests=10):
     """Test communication latency"""
@@ -421,3 +438,7 @@ def latency_test(host="localhost", port=8888, num_tests=10):
             print("   ⚠️  High latency (>100ms) - consider optimization")
     else:
         print("   ❌ All latency tests failed")
+
+
+if __name__ == "__main__":
+    main()

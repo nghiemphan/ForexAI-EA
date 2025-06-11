@@ -242,7 +242,7 @@ class AITradingEngine:
             for feature_name in self.feature_names:
                 feature_vector.append(features.get(feature_name, 0.0))
             
-            # Convert to DataFrame with proper feature names (FIX HERE)
+            # Convert to DataFrame with proper feature names
             import pandas as pd
             X = pd.DataFrame([feature_vector], columns=self.feature_names)
             
@@ -255,29 +255,40 @@ class AITradingEngine:
             # Get prediction probabilities
             probabilities = self.model.predict_proba(X_scaled)[0]
             
-            # Rest of the method remains the same...
+            # Calculate confidence (max probability)
             confidence = np.max(probabilities)
             
+            # Get class probabilities
             classes = self.model.classes_
             class_probs = dict(zip(classes, probabilities))
             
+            # CONVERT ALL NUMPY TYPES TO PYTHON TYPES (FIX HERE)
+            prediction = int(prediction)  # Convert numpy.int64 to int
+            confidence = float(confidence)  # Convert numpy.float64 to float
+            
+            # Convert class probabilities to regular Python types
+            class_probs_clean = {}
+            for key, value in class_probs.items():
+                class_probs_clean[int(key)] = float(value)
+            
+            # Prepare metadata with clean types
             metadata = {
-                'class_probabilities': class_probs,
-                'feature_count': len(feature_vector),
-                'model_performance': self.model_performance.get('test_accuracy', 0),
+                'class_probabilities': class_probs_clean,
+                'feature_count': int(len(feature_vector)),
+                'model_performance': float(self.model_performance.get('test_accuracy', 0)),
                 'prediction_time': datetime.now().isoformat()
             }
             
             # Apply confidence threshold
             if confidence < self.config['confidence_threshold']:
-                prediction = 0
+                prediction = 0  # Hold if confidence too low
                 metadata['confidence_filter'] = True
             else:
                 metadata['confidence_filter'] = False
             
             self.logger.debug(f"Prediction: {prediction}, Confidence: {confidence:.3f}")
             
-            return int(prediction), float(confidence), metadata
+            return prediction, confidence, metadata
             
         except Exception as e:
             self.logger.error(f"Prediction error: {e}")

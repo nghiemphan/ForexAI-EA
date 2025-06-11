@@ -24,6 +24,21 @@ from ai_engine import AITradingEngine, ModelEvaluator
 from technical_indicators import TechnicalIndicators
 from feature_engineer import FeatureEngineer
 
+def clean_for_json(obj):
+    """Convert numpy types to Python types for JSON serialization"""
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {clean_for_json(k): clean_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [clean_for_json(item) for item in obj]
+    else:
+        return obj
+
 class AISocketServer:
     """
     Enhanced socket server with real AI engine integration
@@ -325,6 +340,11 @@ class AISocketServer:
             if self.ai_engine is not None:
                 try:
                     signal, confidence, metadata = self.ai_engine.predict(ohlc_data)
+                    
+                    # Clean all data for JSON serialization (ADD THIS)
+                    signal = clean_for_json(signal)
+                    confidence = clean_for_json(confidence)
+                    metadata = clean_for_json(metadata)
                     
                     # Track performance
                     prediction_time = time.time() - start_time
