@@ -89,16 +89,22 @@ class CommunicationTester:
         print("\n🔍 Test 3: Prediction Request")
         
         try:
-            # Sample price data for testing
-            sample_prices = [1.1234, 1.1245, 1.1256, 1.1248, 1.1252, 
-                           1.1260, 1.1255, 1.1258, 1.1262, 1.1259,
-                           1.1265, 1.1268, 1.1271, 1.1269, 1.1275]
+            # Sample price data for testing - INCREASE TO 100 PRICES
+            sample_prices = []
+            base_price = 1.1234
+            
+            # Generate 100 realistic price points
+            for i in range(100):
+                # Add small random variations
+                variation = (i * 0.00001) + (0.0001 * (i % 10 - 5) / 10)
+                price = base_price + variation
+                sample_prices.append(round(price, 5))
             
             response = self.send_request({
                 "type": "prediction",
                 "symbol": "EURUSD",
                 "timeframe": "M15",
-                "prices": sample_prices,
+                "prices": sample_prices,  # Now 100 prices instead of 15
                 "timestamp": datetime.now().isoformat()
             })
             
@@ -108,7 +114,7 @@ class CommunicationTester:
                 
                 if prediction in [-1, 0, 1] and 0 <= confidence <= 1:
                     self.log_test("Prediction Request", True, 
-                                f"Valid prediction: {prediction} (confidence: {confidence})")
+                                f"Valid prediction: {prediction} (confidence: {confidence:.3f})")
                 else:
                     self.log_test("Prediction Request", False, 
                                 f"Invalid prediction format: pred={prediction}, conf={confidence}")
@@ -254,6 +260,47 @@ class CommunicationTester:
         
         return passed == total
 
+def quick_ai_test():
+    """Quick test for AI prediction with sufficient data"""
+    import socket
+    import json
+    from datetime import datetime
+    
+    # Generate 100 price points
+    sample_prices = [1.1000 + (i * 0.00001) for i in range(100)]
+    
+    request = {
+        "type": "prediction",
+        "symbol": "EURUSD", 
+        "timeframe": "M15",
+        "prices": sample_prices,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(("localhost", 8888))
+        sock.send(json.dumps(request).encode('utf-8'))
+        
+        response = sock.recv(4096).decode('utf-8')
+        sock.close()
+        
+        result = json.loads(response)
+        
+        if result.get("status") == "success":
+            print(f"✅ AI Prediction Success!")
+            print(f"   Signal: {result.get('prediction')}")
+            print(f"   Confidence: {result.get('confidence', 0):.3f}")
+            print(f"   Time: {result.get('prediction_time_ms', 0):.1f}ms")
+            return True
+        else:
+            print(f"❌ AI Prediction Failed: {result}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Test failed: {e}")
+        return False
+
 def main():
     """Main test function"""
     print("Starting ForexAI-EA Communication Tests...")
@@ -265,6 +312,7 @@ def main():
     # Run tests
     tester = CommunicationTester()
     success = tester.run_all_tests()
+    
     
     # Provide next steps
     print("\n" + "=" * 60)
@@ -288,6 +336,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+    print("🧪 Quick AI Prediction Test")
+    quick_ai_test()
 
 # Additional utility functions for testing
 

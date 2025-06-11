@@ -31,3 +31,144 @@
 2025-06-08 14:57:28,573 - __main__ - INFO - Client ('127.0.0.1', 50596) disconnected
 2025-06-11 16:31:36,486 - __main__ - INFO - AISocketServer initialized on localhost:8888
 2025-06-11 16:31:36,504 - __main__ - INFO - AI Socket Server started on localhost:8888
+2025-06-11 17:27:28,371 - __main__ - INFO - Initializing AI engine...
+2025-06-11 17:27:28,371 - ai_engine - INFO - No saved model found
+2025-06-11 17:27:28,371 - __main__ - WARNING - No trained model found. Will use training data to create model...
+2025-06-11 17:27:28,371 - __main__ - INFO - Training initial AI model...
+2025-06-11 17:27:28,402 - ai_engine - INFO - Starting model training...
+2025-06-11 17:27:28,666 - technical_indicators - INFO - Successfully calculated 18 technical indicators
+2025-06-11 17:28:28,041 - feature_engineer - INFO - Prepared training data: 1951 samples, 56 features
+2025-06-11 17:28:28,041 - feature_engineer - INFO - Label distribution: {1: 988, -1: 940, 0: 23}
+2025-06-11 17:28:28,072 - ai_engine - INFO - Created RandomForest model with parameters: {'bootstrap': True, 'ccp_alpha': 0.0, 'class_weight': 'balanced', 'criterion': 'gini', 'max_depth': 10, 'max_features': 'sqrt', 'max_leaf_nodes': None, 'max_samples': None, 'min_impurity_decrease': 0.0, 'min_samples_leaf': 2, 'min_samples_split': 5, 'min_weight_fraction_leaf': 0.0, 'monotonic_cst': None, 'n_estimators': 100, 'n_jobs': -1, 'oob_score': False, 'random_state': 42, 'verbose': 0, 'warm_start': False}
+2025-06-11 17:28:28,072 - ai_engine - INFO - Training model...
+2025-06-11 17:28:31,466 - ai_engine - INFO - Model saved to data/models\forex_ai_model.joblib
+2025-06-11 17:28:31,466 - ai_engine - INFO - Model training completed:
+2025-06-11 17:28:31,466 - ai_engine - INFO -   Train Accuracy: 0.969
+2025-06-11 17:28:31,466 - ai_engine - INFO -   Test Accuracy: 0.739
+2025-06-11 17:28:31,466 - ai_engine - INFO -   CV Score: 0.719 ± 0.024
+2025-06-11 17:28:31,466 - __main__ - INFO - Initial model trained with accuracy: 0.739
+2025-06-11 17:28:31,466 - __main__ - INFO - AISocketServer initialized on localhost:8888
+2025-06-11 17:28:31,479 - __main__ - INFO - AI Socket Server started on localhost:8888
+2025-06-11 17:28:31,562 - __main__ - INFO - New connection from ('127.0.0.1', 56616)
+2025-06-11 17:28:31,578 - __main__ - INFO - Processing request: health_check
+2025-06-11 17:28:31,578 - __main__ - INFO - Client ('127.0.0.1', 56616) disconnected
+2025-06-11 17:28:31,578 - __main__ - INFO - New connection from ('127.0.0.1', 56617)
+2025-06-11 17:28:31,578 - __main__ - ERROR - Invalid JSON received: Expecting value: line 1 column 1 (char 0)
+2025-06-11 17:28:31,578 - __main__ - INFO - Client ('127.0.0.1', 56617) disconnected
+2025-06-11 17:28:31,578 - __main__ - INFO - New connection from ('127.0.0.1', 56619)
+2025-06-11 17:28:31,593 - __main__ - INFO - Processing request: ping
+2025-06-11 17:28:31,593 - __main__ - INFO - New connection from ('127.0.0.1', 56618)
+2025-06-11 17:28:31,593 - __main__ - INFO - Client ('127.0.0.1', 56619) disconnected
+2025-06-11 17:28:31,593 - __main__ - INFO - Processing request: ping
+2025-06-11 17:28:31,593 - __main__ - INFO - New connection from ('127.0.0.1', 56620)
+2025-06-11 17:28:31,593 - __main__ - INFO - Client ('127.0.0.1', 56618) disconnected
+2025-06-11 17:28:31,593 - __main__ - INFO - Processing request: ping
+2025-06-11 17:28:31,593 - __main__ - INFO - New connection from ('127.0.0.1', 56621)
+2025-06-11 17:28:31,593 - __main__ - INFO - Client ('127.0.0.1', 56620) disconnected
+2025-06-11 17:28:31,593 - __main__ - INFO - Processing request: ping
+2025-06-11 17:28:31,593 - __main__ - INFO - New connection from ('127.0.0.1', 56622)
+2025-06-11 17:28:31,593 - __main__ - INFO - Client ('127.0.0.1', 56621) disconnected
+2025-06-11 17:28:31,604 - __main__ - INFO - Processing request: ping
+2025-06-11 17:28:31,604 - __main__ - INFO - Client ('127.0.0.1', 56622) disconnected
+2025-06-11 17:29:39,572 - __main__ - INFO - New connection from ('127.0.0.1', 56628)
+2025-06-11 17:29:39,572 - __main__ - INFO - Client ('127.0.0.1', 56628) disconnected
+2025-06-11 17:29:39,572 - __main__ - INFO - New connection from ('127.0.0.1', 56629)
+2025-06-11 17:29:39,588 - __main__ - INFO - Processing request: ping
+2025-06-11 17:29:39,588 - __main__ - INFO - Client ('127.0.0.1', 56629) disconnected
+2025-06-11 17:29:39,588 - __main__ - INFO - New connection from ('127.0.0.1', 56630)
+2025-06-11 17:29:39,604 - __main__ - INFO - Processing request: prediction
+2025-06-11 17:29:39,604 - __main__ - INFO - Client ('127.0.0.1', 56630) disconnected
+2025-06-11 17:29:39,604 - __main__ - INFO - New connection from ('127.0.0.1', 56631)
+2025-06-11 17:29:39,604 - __main__ - INFO - Processing request: health_check
+2025-06-11 17:29:39,604 - __main__ - INFO - Client ('127.0.0.1', 56631) disconnected
+2025-06-11 17:29:39,604 - __main__ - INFO - New connection from ('127.0.0.1', 56632)
+2025-06-11 17:29:39,604 - __main__ - ERROR - Invalid JSON received: Expecting value: line 1 column 1 (char 0)
+2025-06-11 17:29:39,604 - __main__ - INFO - Client ('127.0.0.1', 56632) disconnected
+2025-06-11 17:29:39,604 - __main__ - INFO - New connection from ('127.0.0.1', 56633)
+2025-06-11 17:29:39,619 - __main__ - INFO - Processing request: ping
+2025-06-11 17:29:39,619 - __main__ - INFO - New connection from ('127.0.0.1', 56634)
+2025-06-11 17:29:39,619 - __main__ - INFO - Client ('127.0.0.1', 56633) disconnected
+2025-06-11 17:29:39,619 - __main__ - INFO - Processing request: ping
+2025-06-11 17:29:39,619 - __main__ - INFO - New connection from ('127.0.0.1', 56635)
+2025-06-11 17:29:39,619 - __main__ - INFO - Client ('127.0.0.1', 56634) disconnected
+2025-06-11 17:29:39,619 - __main__ - INFO - New connection from ('127.0.0.1', 56636)
+2025-06-11 17:29:39,619 - __main__ - INFO - Processing request: ping
+2025-06-11 17:29:39,619 - __main__ - INFO - Client ('127.0.0.1', 56635) disconnected
+2025-06-11 17:29:39,619 - __main__ - INFO - Processing request: ping
+2025-06-11 17:29:39,619 - __main__ - INFO - New connection from ('127.0.0.1', 56637)
+2025-06-11 17:29:39,619 - __main__ - INFO - Client ('127.0.0.1', 56636) disconnected
+2025-06-11 17:29:39,635 - __main__ - INFO - Processing request: ping
+2025-06-11 17:29:39,635 - __main__ - INFO - Client ('127.0.0.1', 56637) disconnected
+2025-06-11 17:36:09,457 - __main__ - INFO - New connection from ('127.0.0.1', 56641)
+2025-06-11 17:41:42,105 - __main__ - INFO - Client ('127.0.0.1', 56641) disconnected
+2025-06-11 17:41:42,105 - __main__ - INFO - New connection from ('127.0.0.1', 56642)
+2025-06-11 17:41:42,121 - __main__ - INFO - Processing request: ping
+2025-06-11 17:41:42,121 - __main__ - INFO - New connection from ('127.0.0.1', 56643)
+2025-06-11 17:41:42,121 - __main__ - ERROR - Client ('127.0.0.1', 56642) error: [WinError 10053] An established connection was aborted by the software in your host machine
+2025-06-11 17:41:42,121 - __main__ - INFO - New connection from ('127.0.0.1', 56644)
+2025-06-11 17:41:42,121 - __main__ - INFO - Client ('127.0.0.1', 56642) disconnected
+2025-06-11 17:41:42,121 - __main__ - INFO - Processing request: prediction
+2025-06-11 17:41:42,136 - technical_indicators - INFO - Successfully calculated 18 technical indicators
+2025-06-11 17:41:42,136 - __main__ - INFO - New connection from ('127.0.0.1', 56645)
+2025-06-11 17:41:42,136 - __main__ - INFO - Processing request: health_check
+2025-06-11 17:41:42,152 - __main__ - ERROR - Client ('127.0.0.1', 56644) error: [WinError 10053] An established connection was aborted by the software in your host machine
+2025-06-11 17:41:42,152 - __main__ - INFO - New connection from ('127.0.0.1', 56652)
+2025-06-11 17:41:42,152 - __main__ - ERROR - Client ('127.0.0.1', 56645) error: [WinError 10054] An existing connection was forcibly closed by the remote host
+2025-06-11 17:41:42,152 - __main__ - INFO - Client ('127.0.0.1', 56644) disconnected
+2025-06-11 17:41:42,167 - __main__ - INFO - Client ('127.0.0.1', 56645) disconnected
+2025-06-11 17:41:42,167 - __main__ - INFO - Client ('127.0.0.1', 56652) disconnected
+2025-06-11 17:41:42,262 - __main__ - INFO - AI Prediction: 0 (Confidence: 0.682) for EURUSD
+2025-06-11 17:41:42,262 - __main__ - ERROR - Error processing request: keys must be str, int, float, bool or None, not numpy.int64
+2025-06-11 17:41:42,262 - __main__ - ERROR - Client ('127.0.0.1', 56643) error: [WinError 10053] An established connection was aborted by the software in your host machine
+2025-06-11 17:41:42,262 - __main__ - INFO - Client ('127.0.0.1', 56643) disconnected
+2025-06-11 17:41:59,856 - __main__ - INFO - Received signal 2, shutting down...
+2025-06-11 17:41:59,856 - __main__ - INFO - AI Socket Server stopped
+2025-06-11 17:41:59,856 - __main__ - INFO - AI Socket Server stopped
+2025-06-11 17:41:59,856 - __main__ - INFO - AI Socket Server stopped
+2025-06-11 17:42:29,292 - __main__ - INFO - Initializing AI engine...
+2025-06-11 17:42:29,433 - ai_engine - INFO - Model loaded from data/models\forex_ai_model.joblib
+2025-06-11 17:42:29,433 - ai_engine - INFO - Model performance: 0.7391304347826086
+2025-06-11 17:42:29,433 - __main__ - INFO - AI model loaded successfully:
+2025-06-11 17:42:29,433 - __main__ - INFO -   Model type: RandomForestClassifier
+2025-06-11 17:42:29,433 - __main__ - INFO -   Features: 56
+2025-06-11 17:42:29,433 - __main__ - INFO -   Accuracy: 0.7391304347826086
+2025-06-11 17:42:29,433 - __main__ - INFO - AISocketServer initialized on localhost:8888
+2025-06-11 17:42:29,449 - __main__ - INFO - AI Socket Server started on localhost:8888
+2025-06-11 17:42:41,366 - __main__ - INFO - New connection from ('127.0.0.1', 56686)
+2025-06-11 17:42:41,366 - __main__ - INFO - New connection from ('127.0.0.1', 56687)
+2025-06-11 17:42:41,366 - __main__ - INFO - Client ('127.0.0.1', 56686) disconnected
+2025-06-11 17:42:41,382 - __main__ - INFO - Processing request: ping
+2025-06-11 17:42:41,382 - __main__ - INFO - Client ('127.0.0.1', 56687) disconnected
+2025-06-11 17:42:41,382 - __main__ - INFO - New connection from ('127.0.0.1', 56688)
+2025-06-11 17:42:41,398 - __main__ - INFO - Processing request: prediction
+2025-06-11 17:42:41,414 - technical_indicators - INFO - Successfully calculated 18 technical indicators
+2025-06-11 17:42:41,525 - __main__ - INFO - AI Prediction: 0 (Confidence: 0.682) for EURUSD
+2025-06-11 17:42:41,525 - __main__ - ERROR - Error processing request: keys must be str, int, float, bool or None, not numpy.int64
+2025-06-11 17:42:41,525 - __main__ - INFO - Client ('127.0.0.1', 56688) disconnected
+2025-06-11 17:42:41,525 - __main__ - INFO - New connection from ('127.0.0.1', 56689)
+2025-06-11 17:42:41,541 - __main__ - INFO - Processing request: health_check
+2025-06-11 17:42:41,542 - __main__ - INFO - Client ('127.0.0.1', 56689) disconnected
+2025-06-11 17:42:41,542 - __main__ - INFO - New connection from ('127.0.0.1', 56690)
+2025-06-11 17:42:41,542 - __main__ - ERROR - Invalid JSON received: Expecting value: line 1 column 1 (char 0)
+2025-06-11 17:42:41,542 - __main__ - INFO - Client ('127.0.0.1', 56690) disconnected
+2025-06-11 17:42:41,542 - __main__ - INFO - New connection from ('127.0.0.1', 56691)
+2025-06-11 17:42:41,542 - __main__ - INFO - Processing request: ping
+2025-06-11 17:42:41,542 - __main__ - INFO - New connection from ('127.0.0.1', 56692)
+2025-06-11 17:42:41,542 - __main__ - INFO - Client ('127.0.0.1', 56691) disconnected
+2025-06-11 17:42:41,542 - __main__ - INFO - Processing request: ping
+2025-06-11 17:42:41,542 - __main__ - INFO - New connection from ('127.0.0.1', 56693)
+2025-06-11 17:42:41,542 - __main__ - INFO - Client ('127.0.0.1', 56692) disconnected
+2025-06-11 17:42:41,542 - __main__ - INFO - Processing request: ping
+2025-06-11 17:42:41,542 - __main__ - INFO - New connection from ('127.0.0.1', 56694)
+2025-06-11 17:42:41,557 - __main__ - INFO - Client ('127.0.0.1', 56693) disconnected
+2025-06-11 17:42:41,557 - __main__ - INFO - Processing request: ping
+2025-06-11 17:42:41,557 - __main__ - INFO - New connection from ('127.0.0.1', 56695)
+2025-06-11 17:42:41,557 - __main__ - INFO - Client ('127.0.0.1', 56694) disconnected
+2025-06-11 17:42:41,557 - __main__ - INFO - Processing request: ping
+2025-06-11 17:42:41,557 - __main__ - INFO - Client ('127.0.0.1', 56695) disconnected
+2025-06-11 17:42:41,557 - __main__ - INFO - New connection from ('127.0.0.1', 56696)
+2025-06-11 17:42:41,557 - __main__ - INFO - Processing request: prediction
+2025-06-11 17:42:41,574 - technical_indicators - INFO - Successfully calculated 18 technical indicators
+2025-06-11 17:42:41,668 - __main__ - INFO - AI Prediction: 0 (Confidence: 0.589) for EURUSD
+2025-06-11 17:42:41,668 - __main__ - ERROR - Error processing request: keys must be str, int, float, bool or None, not numpy.int64
+2025-06-11 17:42:41,668 - __main__ - INFO - Client ('127.0.0.1', 56696) disconnected

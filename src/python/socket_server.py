@@ -83,9 +83,8 @@ class AISocketServer:
         try:
             self.logger.info("Initializing AI engine...")
             
-            # Create AI engine
-            config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'settings.yaml')
-            self.ai_engine = AITradingEngine(config_path)
+            # Create AI engine (without config path for now)
+            self.ai_engine = AITradingEngine()
             
             # Check if model exists and is loaded
             model_info = self.ai_engine.get_model_info()
@@ -109,7 +108,6 @@ class AISocketServer:
             self.logger.info("Training initial AI model...")
             
             # Generate sample training data for demonstration
-            # In production, this would use real historical data
             sample_data = self._generate_sample_training_data()
             
             # Train the model
@@ -414,3 +412,136 @@ class AISocketServer:
                 open_price = close
             else:
                 open_price = prices[i-1]
+            
+            # Simulate high/low based on close prices
+            # Add small random variation to simulate realistic OHLC
+            price_range = abs(close - open_price) * 0.3
+            high = max(open_price, close) + price_range * 0.5
+            low = min(open_price, close) - price_range * 0.5
+            
+            ohlc_data['open'].append(open_price)
+            ohlc_data['high'].append(high)
+            ohlc_data['low'].append(low)
+        
+        return ohlc_data
+    
+    def handle_health_check(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle comprehensive health check request"""
+        # Calculate average prediction time
+        avg_prediction_time = 0
+        if self.prediction_times:
+            recent_times = self.prediction_times[-50:]  # Last 50 predictions
+            avg_prediction_time = np.mean(recent_times) * 1000  # Convert to ms
+        
+        # Get AI engine status
+        ai_status = 'unavailable'
+        model_info = {}
+        if self.ai_engine:
+            ai_status = 'available'
+            model_info = self.ai_engine.get_model_info()
+        
+        return {
+            'status': 'success',
+            'server_status': 'healthy',
+            'ai_engine_status': ai_status,
+            'uptime_seconds': time.time(),
+            'active_connections': len(self.client_connections),
+            'total_predictions': self.prediction_count,
+            'avg_prediction_time_ms': avg_prediction_time,
+            'model_info': model_info,
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    def handle_model_info_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle model information request"""
+        if self.ai_engine is None:
+            return {
+                'status': 'error',
+                'message': 'AI engine not available',
+                'timestamp': datetime.now().isoformat()
+            }
+        
+        model_info = self.ai_engine.get_model_info()
+        
+        # Add feature importance if available
+        feature_importance = self.ai_engine.get_feature_importance(15)
+        
+        return {
+            'status': 'success',
+            'model_info': model_info,
+            'feature_importance': feature_importance,
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    def handle_performance_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle performance statistics request"""
+        # Calculate confidence statistics
+        confidence_stats = {}
+        if self.last_predictions:
+            confidences = [p['confidence'] for p in self.last_predictions]
+            confidence_stats = {
+                'mean': np.mean(confidences),
+                'std': np.std(confidences),
+                'min': np.min(confidences),
+                'max': np.max(confidences)
+            }
+        
+        # Signal distribution
+        signal_distribution = {-1: 0, 0: 0, 1: 0}
+        if self.last_predictions:
+            for pred in self.last_predictions:
+                signal_distribution[pred['signal']] += 1
+        
+        return {
+            'status': 'success',
+            'prediction_count': self.prediction_count,
+            'confidence_stats': confidence_stats,
+            'signal_distribution': signal_distribution,
+            'recent_predictions': self.last_predictions[-10:],  # Last 10 predictions
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    def stop_server(self):
+        """Stop the server gracefully"""
+        self.is_running = False
+        
+        # Close all client connections
+        for client_socket in self.client_connections[:]:
+            try:
+                client_socket.close()
+            except:
+                pass
+        self.client_connections.clear()
+        
+        # Close server socket
+        if self.server_socket:
+            try:
+                self.server_socket.close()
+            except:
+                pass
+        
+        self.logger.info("AI Socket Server stopped")
+
+
+def main():
+    """Main function to start the server"""
+    print("=" * 60)
+    print("ForexAI-EA Socket Server v2.0.0 (Real AI Engine)")
+    print("=" * 60)
+    
+    # Create and start server
+    server = AISocketServer(host="localhost", port=8888)
+    
+    try:
+        server.start_server()
+    except KeyboardInterrupt:
+        print("\nShutdown requested by user")
+    except Exception as e:
+        print(f"Server error: {e}")
+    finally:
+        server.stop_server()
+        print("Server shutdown complete")
+
+
+if __name__ == "__main__":
+    main()
