@@ -29,3 +29,5 @@
 2025-06-08 14:57:28,573 - __main__ - INFO - Client ('127.0.0.1', 50595) disconnected
 2025-06-08 14:57:28,573 - __main__ - INFO - Processing request: ping
 2025-06-08 14:57:28,573 - __main__ - INFO - Client ('127.0.0.1', 50596) disconnected
+2025-06-11 16:31:36,486 - __main__ - INFO - AISocketServer initialized on localhost:8888
+2025-06-11 16:31:36,504 - __main__ - INFO - AI Socket Server started on localhost:8888

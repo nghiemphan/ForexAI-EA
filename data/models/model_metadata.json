@@ -1,0 +1,161 @@
+{
+  "feature_names": [
+    "ema_9",
+    "ema_21",
+    "ema_50",
+    "ema_9_21_spread",
+    "ema_21_50_spread",
+    "ema_9_50_spread",
+    "ema_alignment",
+    "ema_9_slope",
+    "ema_21_slope",
+    "macd_main",
+    "macd_signal",
+    "macd_histogram",
+    "macd_momentum",
+    "macd_strength",
+    "rsi",
+    "rsi_normalized",
+    "rsi_overbought",
+    "rsi_oversold",
+    "rsi_neutral",
+    "rsi_momentum",
+    "stoch_k",
+    "stoch_d",
+    "stoch_spread",
+    "stoch_overbought",
+    "stoch_oversold",
+    "williams_r",
+    "williams_overbought",
+    "williams_oversold",
+    "atr",
+    "atr_normalized",
+    "atr_trend",
+    "volatility_regime",
+    "bb_position",
+    "bb_width",
+    "bb_squeeze",
+    "bb_expansion",
+    "price_volatility",
+    "body_to_range_ratio",
+    "upper_shadow_ratio",
+    "lower_shadow_ratio",
+    "candle_direction",
+    "candle_strength",
+    "higher_highs",
+    "lower_lows",
+    "price_vs_bb_middle",
+    "ema_9_21_bullish_cross",
+    "ema_9_21_bearish_cross",
+    "macd_bullish_cross",
+    "macd_bearish_cross",
+    "stoch_bullish_cross",
+    "stoch_bearish_cross",
+    "roc_5",
+    "roc_10",
+    "price_zscore",
+    "distance_to_resistance",
+    "distance_to_support"
+  ],
+  "model_performance": {
+    "train_accuracy": 0.968117190866006,
+    "test_accuracy": 0.7710843373493976,
+    "feature_count": 56,
+    "training_samples": 2321,
+    "test_samples": 581,
+    "class_distribution": {
+      "1": 1487,
+      "-1": 1390,
+      "0": 25
+    },
+    "training_date": "2025-06-11T17:02:25.726602",
+    "cv_mean": 0.7850129773822765,
+    "cv_std": 0.019265091178138846,
+    "feature_importance": {
+      "price_volatility": 0.09359392328267813,
+      "macd_main": 0.0785424293735334,
+      "ema_9_50_spread": 0.0761718878970346,
+      "ema_9_21_spread": 0.0627204792159305,
+      "bb_width": 0.05972424816641408,
+      "ema_21_50_spread": 0.05102624831596159,
+      "macd_signal": 0.04480178056027329,
+      "atr_normalized": 0.03652057761393694,
+      "volatility_regime": 0.03303535299916018,
+      "atr_trend": 0.029479231517098442,
+      "rsi_normalized": 0.025287601918526716,
+      "ema_21_slope": 0.024303057286457545,
+      "atr": 0.022909417711514335,
+      "rsi": 0.021960928531234037,
+      "ema_9": 0.018527326373170675,
+      "ema_50": 0.01775624591233779,
+      "ema_alignment": 0.017564366818413328,
+      "price_vs_bb_middle": 0.017494036543512868,
+      "ema_21": 0.016803512139670084,
+      "stoch_spread": 0.016612237739209442
+    },
+    "classification_report": {
+      "-1": {
+        "precision": 0.7642857142857142,
+        "recall": 0.7697841726618705,
+        "f1-score": 0.7670250896057348,
+        "support": 278.0
+      },
+      "0": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 5.0
+      },
+      "1": {
+        "precision": 0.7774086378737541,
+        "recall": 0.785234899328859,
+        "f1-score": 0.7813021702838063,
+        "support": 298.0
+      },
+      "accuracy": 0.7710843373493976,
+      "macro avg": {
+        "precision": 0.5138981173864895,
+        "recall": 0.5183396906635765,
+        "f1-score": 0.516109086629847,
+        "support": 581.0
+      },
+      "weighted avg": {
+        "precision": 0.764439247259565,
+        "recall": 0.7710843373493976,
+        "f1-score": 0.767747025223698,
+        "support": 581.0
+      }
+    },
+    "confusion_matrix": [
+      [
+        214,
+        0,
+        64
+      ],
+      [
+        2,
+        0,
+        3
+      ],
+      [
+        64,
+        0,
+        234
+      ]
+    ]
+  },
+  "config": {
+    "model_type": "RandomForest",
+    "n_estimators": 100,
+    "max_depth": 10,
+    "min_samples_split": 5,
+    "min_samples_leaf": 2,
+    "random_state": 42,
+    "test_size": 0.2,
+    "cv_folds": 5,
+    "confidence_threshold": 0.7,
+    "retrain_threshold": 1000,
+    "model_dir": "data/models"
+  },
+  "save_date": "2025-06-11T17:02:29.595868"
+}
