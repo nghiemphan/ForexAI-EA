@@ -17,9 +17,12 @@ input int    AIServerPort = 8888;                  // AI Server Port
 input int    ConnectionTimeout = 30;               // Connection timeout (seconds)
 
 input group "=== Trading Settings ==="
-input double RiskPercent = 1.5;                    // Risk per trade (%)
-input int    MaxPositions = 4;                     // Maximum simultaneous positions
 input int    MagicNumber = 123456;                 // Magic number for EA trades
+input double RiskPercent = 0.5;                    // REDUCE from 1.5% to 0.5%
+input int MaxPositions = 1;                        // REDUCE from 4 to 1
+input double MaxDrawdownPercent = 10.0;            // ADD: Stop trading at 10% loss
+input double MinConfidenceThreshold = 0.85;        // INCREASE from 0.7 to 0.85
+input bool EmergencyMode = true;                   // ADD: Emergency protection
 
 input group "=== AI Settings ==="
 input int    AnalysisPeriod = 50;                  // Bars for AI analysis
@@ -81,6 +84,31 @@ public:
         
         Sleep(50); // Simulate network delay
         return true;
+    }
+
+    bool IsEmergencyStop()
+    {
+        double currentBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+        double currentEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+        double initialBalance = 100000.0; // Set your starting balance
+        
+        // Calculate current drawdown
+        double drawdown = (initialBalance - currentEquity) / initialBalance * 100;
+        
+        if(drawdown >= MaxDrawdownPercent)
+        {
+            Print("🚨 EMERGENCY STOP: Drawdown ", drawdown, "% exceeds limit ", MaxDrawdownPercent, "%");
+            return true;
+        }
+        
+        // Stop if equity below 50% of balance
+        if(currentEquity < currentBalance * 0.5)
+        {
+            Print("🚨 EMERGENCY STOP: Equity protection triggered");
+            return true;
+        }
+        
+        return false;
     }
     
     void Close()
@@ -150,6 +178,19 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+    // FIRST: Check emergency conditions
+    if(EmergencyMode && IsEmergencyStop())
+    {
+        Print("🚨 EMERGENCY MODE: All trading halted");
+        return; // Stop all trading
+    }
+    
+    // Close losing positions immediately if drawdown > 5%
+    if(GetCurrentDrawdown() > 5.0)
+    {
+        CloseAllLosingPositions();
+    }
+    
     // Update price buffer with latest data
     UpdatePriceBuffer();
     
@@ -162,22 +203,10 @@ void OnTick()
     {
         int aiSignal = GetAIPrediction();
         
+        // INCREASED confidence threshold for emergency mode
         if(aiSignal != 0)
         {
-            ProcessAISignal(aiSignal);
-            lastPredictionTime = TimeCurrent();
-        }
-    }
-    else
-    {
-        // Try to reconnect to AI server periodically
-        if(TimeCurrent() - lastPredictionTime > 60) // Try every minute
-        {
-            if(TestAIConnection())
-            {
-                isConnectedToAI = true;
-                Print("✓ Reconnected to AI Server");
-            }
+            ProcessAISignalWithEmergencyControls(aiSignal);
             lastPredictionTime = TimeCurrent();
         }
     }
@@ -196,6 +225,145 @@ void UpdatePriceBuffer()
     {
         ArrayCopy(priceBuffer, closePrice);
     }
+}
+
+void CloseAllLosingPositions()
+{
+    for(int i = PositionsTotal() - 1; i >= 0; i--)
+    {
+        if(PositionGetSymbol(i) == _Symbol && 
+           PositionGetInteger(POSITION_MAGIC) == MagicNumber)
+        {
+            double positionProfit = PositionGetDouble(POSITION_PROFIT);
+            
+            if(positionProfit < 0) // Losing position
+            {
+                ulong ticket = PositionGetInteger(POSITION_TICKET);
+                if(trade.PositionClose(ticket))
+                {
+                    Print("🚨 Emergency close losing position #", ticket, " P&L: ", positionProfit);
+                }
+            }
+        }
+    }
+}
+
+void ProcessAISignalWithEmergencyControls(int signal)
+{
+    // Don't trade if in emergency mode and drawdown > 3%
+    if(EmergencyMode && GetCurrentDrawdown() > 3.0)
+    {
+        Print("🚨 Trading halted: Emergency drawdown protection");
+        return;
+    }
+    
+    // Only trade with very high confidence
+    double lastConfidence = GetLastAIConfidence(); // You need to store this
+    if(lastConfidence < MinConfidenceThreshold)
+    {
+        Print("⚠️ Signal ignored: Low confidence ", lastConfidence);
+        return;
+    }
+    
+    // Check if we can trade
+    if(!IsTradeAllowed())
+        return;
+    
+    // Close existing positions first
+    CloseExistingPositions();
+    
+    // Execute trade with emergency controls
+    if(signal == 1) // Buy signal
+    {
+        OpenBuyPositionSafe();
+    }
+    else if(signal == -1) // Sell signal
+    {
+        OpenSellPositionSafe();
+    }
+}
+
+// STEP 7: Safe Position Opening
+bool OpenSellPositionSafe()
+{
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    
+    // Check spread
+    double spread = (ask - bid) / _Point;
+    if(spread > 20) // Max 2 pips spread
+    {
+        Print("❌ Spread too wide: ", spread, " points");
+        return false;
+    }
+    
+    // Calculate conservative stops
+    double atr[];
+    ArraySetAsSeries(atr, true);
+    if(CopyBuffer(iATR(_Symbol, PERIOD_CURRENT, 14), 0, 0, 1, atr) != 1)
+    {
+        Print("❌ Failed to get ATR");
+        return false;
+    }
+    
+    // Tight stops in emergency mode
+    double stopDistance = atr[0] * 1.5; // Reduced from 2.0
+    double stopLoss = bid + stopDistance;
+    double takeProfit = bid - (atr[0] * 2.0); // Reduced from 3.0
+    
+    double lotSize = CalculatePositionSize(bid, stopLoss);
+    
+    // Normalize
+    stopLoss = NormalizeDouble(stopLoss, _Digits);
+    takeProfit = NormalizeDouble(takeProfit, _Digits);
+    
+    Print("🛡️ SAFE SELL: Lot=", lotSize, " SL=", stopLoss, " TP=", takeProfit);
+    
+    if(trade.Sell(lotSize, _Symbol, bid, stopLoss, takeProfit, "AI Safe Sell"))
+    {
+        Print("✅ Safe sell order placed");
+        return true;
+    }
+    else
+    {
+        Print("❌ Safe sell failed: ", trade.ResultRetcode());
+        return false;
+    }
+}
+
+// STEP 8: Utility Functions
+double GetCurrentDrawdown()
+{
+    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+    double initialBalance = 100000.0; // Set your starting balance
+    
+    return (initialBalance - equity) / initialBalance * 100;
+}
+
+// STEP 9: Market Hours Protection
+bool IsGoodTradingTime()
+{
+    MqlDateTime timeStruct;
+    TimeToStruct(TimeCurrent(), timeStruct);
+    
+    // Avoid trading during high-risk hours
+    if(timeStruct.hour >= 22 || timeStruct.hour <= 2) // Asian session
+    {
+        return false;
+    }
+    
+    if(timeStruct.day_of_week == 1 && timeStruct.hour < 8) // Monday morning
+    {
+        return false;
+    }
+    
+    if(timeStruct.day_of_week == 5 && timeStruct.hour > 15) // Friday afternoon
+    {
+        return false;
+    }
+    
+    return true;
 }
 
 //+------------------------------------------------------------------+
@@ -532,7 +700,19 @@ void OpenSellPosition()
 double CalculatePositionSize(double entryPrice, double stopLoss)
 {
     double accountBalance = AccountInfoDouble(ACCOUNT_BALANCE);
-    double riskAmount = accountBalance * RiskPercent / 100.0;
+    double currentEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+    
+    // Use smaller of balance or equity for conservative sizing
+    double baseAmount = MathMin(accountBalance, currentEquity);
+    double riskAmount = baseAmount * RiskPercent / 100.0;
+    
+    // ADDITIONAL SAFETY: Reduce risk if in drawdown
+    double drawdown = GetCurrentDrawdown();
+    if(drawdown > 2.0)
+    {
+        riskAmount *= 0.5; // Halve risk if in drawdown
+        Print("⚠️ Risk reduced due to drawdown: ", drawdown, "%");
+    }
     
     double stopLossDistance = MathAbs(entryPrice - stopLoss);
     double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
@@ -540,16 +720,26 @@ double CalculatePositionSize(double entryPrice, double stopLoss)
     
     double lotSize = riskAmount / (stopLossDistance / tickSize * tickValue);
     
-    // Normalize lot size
+    // EMERGENCY LIMITS
+    double maxLot = 0.01; // Maximum 0.01 lots in emergency mode
+    if(EmergencyMode)
+    {
+        lotSize = MathMin(lotSize, maxLot);
+    }
+    
+    // Symbol limits
     double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-    double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+    double maxSymbolLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
     double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
     
-    lotSize = MathMax(minLot, MathMin(maxLot, 
+    lotSize = MathMax(minLot, MathMin(maxSymbolLot, 
               MathRound(lotSize / lotStep) * lotStep));
+    
+    Print("💰 Emergency Position Size: ", lotSize, " (Risk: ", riskAmount, ")");
     
     return lotSize;
 }
+
 
 //+------------------------------------------------------------------+
 //| Handle trading events                                            |
