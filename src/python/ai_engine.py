@@ -1,784 +1,908 @@
-# src/python/ai_engine.py
 """
-AI Trading Engine for ForexAI-EA Project
-Machine Learning model for forex trading predictions
+File: src/python/enhanced_ai_engine.py
+Description: Enhanced AI Engine with Volume Profile and VWAP Integration
 Author: Claude AI Developer
-Version: 1.0.0
-Created: 2025-06-11
+Version: 2.0.0
+Created: 2025-06-13
+Modified: 2025-06-13
 """
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Tuple, Optional, Any
 import logging
 import joblib
-import os
 from datetime import datetime
-import json
+import warnings
+warnings.filterwarnings('ignore')
 
 # Machine Learning imports
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-from sklearn.preprocessing import StandardScaler
-from sklearn.utils.class_weight import compute_class_weight
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+from sklearn.model_selection import cross_val_score, StratifiedKFold, GridSearchCV
+from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+import xgboost as xgb
+from sklearn.linear_model import LogisticRegression
 
-# Local imports
-from technical_indicators import TechnicalIndicators
-from feature_engineer import FeatureEngineer
+# Import our enhanced modules
+from enhanced_feature_engineer import EnhancedFeatureEngineer
+from volume_profile import VolumeProfileEngine, VWAPCalculator
 
-class AITradingEngine:
-    """
-    Main AI Trading Engine with machine learning capabilities
-    Handles model training, prediction, and performance monitoring
-    """
+class EnhancedAIEngine:
+    """Enhanced AI Engine with Volume Profile, VWAP, and Ensemble Models"""
     
-    def __init__(self, config_path: Optional[str] = None):
-        self.logger = logging.getLogger(__name__)
-        
-        # Initialize components
-        self.indicators_engine = TechnicalIndicators()
-        self.feature_engineer = FeatureEngineer()
-        
-        # ML components
-        self.model: Optional[RandomForestClassifier] = None
-        self.scaler: Optional[StandardScaler] = None
-        self.feature_names: List[str] = []
-        self.model_performance: Dict = {}
-        
-        # Configuration
-        self.config = self._load_config(config_path)
-        
-        # Model paths
-        self.model_dir = self.config.get('model_dir', 'data/models')
-        self.model_path = os.path.join(self.model_dir, 'forex_ai_model.joblib')
-        self.scaler_path = os.path.join(self.model_dir, 'feature_scaler.joblib')
-        self.metadata_path = os.path.join(self.model_dir, 'model_metadata.json')
-        
-        # Ensure model directory exists
-        os.makedirs(self.model_dir, exist_ok=True)
-        
-        # Try to load existing model
-        self.load_model()
-    
-    def _load_config(self, config_path: Optional[str]) -> Dict:
-        """Load configuration for AI engine"""
-        default_config = {
-            'model_type': 'RandomForest',
-            'n_estimators': 100,
-            'max_depth': 10,
-            'min_samples_split': 5,
-            'min_samples_leaf': 2,
-            'random_state': 42,
-            'test_size': 0.2,
-            'cv_folds': 5,
-            'confidence_threshold': 0.7,
-            'retrain_threshold': 1000,  # Retrain after N new samples
-            'model_dir': 'data/models'
-        }
-        
-        if config_path and os.path.exists(config_path):
-            import yaml
-            with open(config_path, 'r') as f:
-                user_config = yaml.safe_load(f)
-                default_config.update(user_config.get('ai_engine', {}))
-        
-        return default_config
-    
-    def create_model(self) -> RandomForestClassifier:
-        """Create and configure the ML model"""
-        model = RandomForestClassifier(
-            n_estimators=self.config['n_estimators'],
-            max_depth=self.config['max_depth'],
-            min_samples_split=self.config['min_samples_split'],
-            min_samples_leaf=self.config['min_samples_leaf'],
-            random_state=self.config['random_state'],
-            class_weight='balanced',  # Handle class imbalance
-            n_jobs=-1  # Use all CPU cores
-        )
-        
-        self.logger.info(f"Created {self.config['model_type']} model with parameters: {model.get_params()}")
-        return model
-    
-    def train_model(self, historical_data: List[Dict], 
-                   optimize_hyperparameters: bool = False) -> Dict:
+    def __init__(self, symbol: str = "EURUSD", timeframe: str = "M15"):
         """
-        Train the AI model on historical data
+        Initialize Enhanced AI Engine
         
         Args:
-            historical_data: List of OHLC data dictionaries
-            optimize_hyperparameters: Whether to optimize hyperparameters
+            symbol: Trading symbol
+            timeframe: Chart timeframe
+        """
+        self.logger = logging.getLogger(__name__)
+        self.symbol = symbol
+        self.timeframe = timeframe
+        
+        # Initialize feature engineer
+        self.feature_engineer = EnhancedFeatureEngineer(symbol, timeframe)
+        
+        # Model ensemble
+        self.ensemble_model = None
+        self.feature_scaler = RobustScaler()
+        self.feature_columns = None
+        self.model_trained = False
+        
+        # Performance tracking
+        self.prediction_history = []
+        self.accuracy_tracker = []
+        self.confidence_threshold = 0.65
+        
+        # Enhanced model configuration
+        self.model_config = {
+            'random_forest': {
+                'n_estimators': 200,
+                'max_depth': 15,
+                'min_samples_split': 10,
+                'min_samples_leaf': 5,
+                'random_state': 42,
+                'class_weight': 'balanced'
+            },
+            'xgboost': {
+                'n_estimators': 150,
+                'max_depth': 8,
+                'learning_rate': 0.1,
+                'subsample': 0.8,
+                'colsample_bytree': 0.8,
+                'random_state': 42,
+                'eval_metric': 'mlogloss'
+            },
+            'logistic': {
+                'random_state': 42,
+                'class_weight': 'balanced',
+                'max_iter': 1000
+            }
+        }
+        
+    def train_enhanced_model(self, ohlcv_data: pd.DataFrame, 
+                           validation_split: float = 0.2) -> Dict[str, Any]:
+        """
+        Train enhanced ensemble model with Volume Profile features
+        
+        Args:
+            ohlcv_data: Historical OHLCV data
+            validation_split: Percentage of data for validation
             
         Returns:
-            Dictionary with training results and performance metrics
+            Dictionary with training results and metrics
         """
-        self.logger.info("Starting model training...")
-        
-        # Prepare training data
-        features_df, labels_series = self.feature_engineer.prepare_training_data(historical_data)
-        
-        if len(features_df) < 100:
-            raise ValueError(f"Insufficient training data: {len(features_df)} samples")
-        
-        # Store feature names
-        self.feature_names = list(features_df.columns)
-        
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(
-            features_df, labels_series,
-            test_size=self.config['test_size'],
-            random_state=self.config['random_state'],
-            stratify=labels_series
-        )
-        
-        # Scale features
-        self.scaler = StandardScaler()
-        X_train_scaled = self.scaler.fit_transform(X_train)
-        X_test_scaled = self.scaler.transform(X_test)
-        
-        # Optimize hyperparameters if requested
-        if optimize_hyperparameters:
-            self.model = self._optimize_hyperparameters(X_train_scaled, y_train)
-        else:
-            self.model = self.create_model()
-        
-        # Train model
-        self.logger.info("Training model...")
-        self.model.fit(X_train_scaled, y_train)
-        
-        # Evaluate model
-        train_predictions = self.model.predict(X_train_scaled)
-        test_predictions = self.model.predict(X_test_scaled)
-        
-        # Calculate performance metrics
-        performance = {
-            'train_accuracy': accuracy_score(y_train, train_predictions),
-            'test_accuracy': accuracy_score(y_test, test_predictions),
-            'feature_count': len(self.feature_names),
-            'training_samples': len(X_train),
-            'test_samples': len(X_test),
-            'class_distribution': labels_series.value_counts().to_dict(),
-            'training_date': datetime.now().isoformat()
-        }
-        
-        # Cross-validation score
-        cv_scores = cross_val_score(
-            self.model, X_train_scaled, y_train,
-            cv=self.config['cv_folds'], scoring='accuracy'
-        )
-        performance['cv_mean'] = np.mean(cv_scores)
-        performance['cv_std'] = np.std(cv_scores)
-        
-        # Feature importance
-        if hasattr(self.model, 'feature_importances_'):
-            feature_importance = dict(zip(self.feature_names, self.model.feature_importances_))
-            performance['feature_importance'] = dict(sorted(
-                feature_importance.items(), key=lambda x: x[1], reverse=True
-            )[:20])  # Top 20 features
-        
-        # Classification report
-        performance['classification_report'] = classification_report(
-            y_test, test_predictions, output_dict=True
-        )
-        
-        # Confusion matrix
-        cm = confusion_matrix(y_test, test_predictions)
-        performance['confusion_matrix'] = cm.tolist()
-        
-        self.model_performance = performance
-        
-        # Save model
-        self.save_model()
-        
-        # Log results
-        self.logger.info(f"Model training completed:")
-        self.logger.info(f"  Train Accuracy: {performance['train_accuracy']:.3f}")
-        self.logger.info(f"  Test Accuracy: {performance['test_accuracy']:.3f}")
-        self.logger.info(f"  CV Score: {performance['cv_mean']:.3f} ± {performance['cv_std']:.3f}")
-        
-        return performance
-    
-    def _optimize_hyperparameters(self, X_train: np.ndarray, y_train: np.ndarray) -> RandomForestClassifier:
-        """Optimize model hyperparameters using grid search"""
-        self.logger.info("Optimizing hyperparameters...")
-        
-        param_grid = {
-            'n_estimators': [50, 100, 200],
-            'max_depth': [5, 10, 15, None],
-            'min_samples_split': [2, 5, 10],
-            'min_samples_leaf': [1, 2, 4]
-        }
-        
-        base_model = RandomForestClassifier(
-            random_state=self.config['random_state'],
-            class_weight='balanced',
-            n_jobs=-1
-        )
-        
-        grid_search = GridSearchCV(
-            base_model, param_grid,
-            cv=3, scoring='accuracy',
-            n_jobs=-1, verbose=1
-        )
-        
-        grid_search.fit(X_train, y_train)
-        
-        self.logger.info(f"Best parameters: {grid_search.best_params_}")
-        self.logger.info(f"Best CV score: {grid_search.best_score_:.3f}")
-        
-        return grid_search.best_estimator_
-    
-    def predict(self, ohlc_data: Dict[str, List[float]]) -> Tuple[int, float, Dict]:
-        """Make trading prediction for current market data"""
-        if self.model is None or self.scaler is None:
-            raise ValueError("Model not trained. Call train_model() first.")
-        
         try:
-            # Create features
-            features = self.feature_engineer.create_features(ohlc_data)
+            self.logger.info("🚀 Starting enhanced AI model training...")
             
-            # Ensure we have all required features in correct order
-            feature_vector = []
-            for feature_name in self.feature_names:
-                feature_vector.append(features.get(feature_name, 0.0))
+            # Prepare enhanced training data
+            features_df, labels_series = self.feature_engineer.prepare_enhanced_training_data(ohlcv_data)
             
-            # Convert to DataFrame with proper feature names
-            import pandas as pd
-            X = pd.DataFrame([feature_vector], columns=self.feature_names)
+            if len(features_df) < 100:
+                raise ValueError("Insufficient training data (need at least 100 samples)")
+            
+            # Store feature columns for future use
+            self.feature_columns = features_df.columns.tolist()
+            self.logger.info(f"📊 Training with {len(features_df)} samples and {len(self.feature_columns)} features")
+            
+            # Split data
+            split_idx = int(len(features_df) * (1 - validation_split))
+            X_train = features_df.iloc[:split_idx]
+            y_train = labels_series.iloc[:split_idx]
+            X_val = features_df.iloc[split_idx:]
+            y_val = labels_series.iloc[split_idx:]
             
             # Scale features
-            X_scaled = self.scaler.transform(X)
+            X_train_scaled = self.feature_scaler.fit_transform(X_train)
+            X_val_scaled = self.feature_scaler.transform(X_val)
             
-            # Make prediction
-            prediction = self.model.predict(X_scaled)[0]
+            # Create ensemble models
+            models = self._create_ensemble_models()
             
-            # Get prediction probabilities
-            probabilities = self.model.predict_proba(X_scaled)[0]
+            # Train individual models
+            trained_models = []
+            model_scores = {}
             
-            # Calculate confidence (max probability)
-            confidence = np.max(probabilities)
+            for name, model in models.items():
+                self.logger.info(f"🔧 Training {name} model...")
+                model.fit(X_train_scaled, y_train)
+                
+                # Evaluate on validation set
+                val_predictions = model.predict(X_val_scaled)
+                accuracy = accuracy_score(y_val, val_predictions)
+                model_scores[name] = accuracy
+                
+                trained_models.append((name, model))
+                self.logger.info(f"✅ {name} validation accuracy: {accuracy:.4f}")
             
-            # Get class probabilities
-            classes = self.model.classes_
-            class_probs = dict(zip(classes, probabilities))
+            # Create voting ensemble
+            voting_models = [(name, model) for name, model in trained_models]
+            self.ensemble_model = VotingClassifier(
+                estimators=voting_models,
+                voting='soft'  # Use probability-based voting
+            )
             
-            # CONVERT ALL NUMPY TYPES TO PYTHON TYPES (FIX HERE)
-            prediction = int(prediction)  # Convert numpy.int64 to int
-            confidence = float(confidence)  # Convert numpy.float64 to float
+            # Train ensemble
+            self.logger.info("🔄 Training ensemble model...")
+            self.ensemble_model.fit(X_train_scaled, y_train)
             
-            # Convert class probabilities to regular Python types
-            class_probs_clean = {}
-            for key, value in class_probs.items():
-                class_probs_clean[int(key)] = float(value)
+            # Evaluate ensemble
+            ensemble_val_predictions = self.ensemble_model.predict(X_val_scaled)
+            ensemble_accuracy = accuracy_score(y_val, ensemble_val_predictions)
             
-            # Prepare metadata with clean types
-            metadata = {
-                'class_probabilities': class_probs_clean,
-                'feature_count': int(len(feature_vector)),
-                'model_performance': float(self.model_performance.get('test_accuracy', 0)),
-                'prediction_time': datetime.now().isoformat()
+            # Cross-validation
+            cv_scores = cross_val_score(
+                self.ensemble_model, X_train_scaled, y_train, 
+                cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+                scoring='accuracy'
+            )
+            
+            # Feature importance (from Random Forest)
+            rf_model = None
+            for name, model in trained_models:
+                if name == 'random_forest':
+                    rf_model = model
+                    break
+            
+            feature_importance = {}
+            if rf_model and hasattr(rf_model, 'feature_importances_'):
+                importance_scores = rf_model.feature_importances_
+                feature_importance = dict(zip(self.feature_columns, importance_scores))
+                # Sort by importance
+                feature_importance = dict(sorted(feature_importance.items(), 
+                                               key=lambda x: x[1], reverse=True))
+            
+            # Training results
+            results = {
+                'ensemble_accuracy': ensemble_accuracy,
+                'individual_accuracies': model_scores,
+                'cv_mean': cv_scores.mean(),
+                'cv_std': cv_scores.std(),
+                'training_samples': len(X_train),
+                'validation_samples': len(X_val),
+                'feature_count': len(self.feature_columns),
+                'feature_importance': feature_importance,
+                'label_distribution': y_train.value_counts().to_dict()
             }
             
-            # Apply confidence threshold
-            if confidence < self.config['confidence_threshold']:
-                prediction = 0  # Hold if confidence too low
-                metadata['confidence_filter'] = True
-            else:
-                metadata['confidence_filter'] = False
+            self.model_trained = True
             
-            self.logger.debug(f"Prediction: {prediction}, Confidence: {confidence:.3f}")
+            # Log results
+            self.logger.info("🎯 Enhanced AI Model Training Complete!")
+            self.logger.info(f"   📊 Ensemble Accuracy: {ensemble_accuracy:.4f}")
+            self.logger.info(f"   📈 Cross-validation: {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
+            self.logger.info(f"   🔥 Feature Count: {len(self.feature_columns)}")
             
-            return prediction, confidence, metadata
+            # Log top features
+            if feature_importance:
+                top_features = list(feature_importance.keys())[:10]
+                self.logger.info(f"   ⭐ Top Features: {', '.join(top_features[:5])}")
             
-        except Exception as e:
-            self.logger.error(f"Prediction error: {e}")
-            return 0, 0.0, {'error': str(e)}
-    
-    def save_model(self) -> bool:
-        """Save trained model, scaler, and metadata"""
-        try:
-            if self.model is None:
-                self.logger.warning("No model to save")
-                return False
-            
-            # Save model
-            joblib.dump(self.model, self.model_path)
-            
-            # Save scaler
-            if self.scaler is not None:
-                joblib.dump(self.scaler, self.scaler_path)
-            
-            # Save metadata
-            metadata = {
-                'feature_names': self.feature_names,
-                'model_performance': self.model_performance,
-                'config': self.config,
-                'save_date': datetime.now().isoformat()
-            }
-            
-            with open(self.metadata_path, 'w') as f:
-                json.dump(metadata, f, indent=2)
-            
-            self.logger.info(f"Model saved to {self.model_path}")
-            return True
+            return results
             
         except Exception as e:
-            self.logger.error(f"Error saving model: {e}")
-            return False
+            self.logger.error(f"Enhanced model training failed: {e}")
+            raise
     
-    def load_model(self) -> bool:
-        """Load trained model, scaler, and metadata"""
-        try:
-            if not os.path.exists(self.model_path):
-                self.logger.info("No saved model found")
-                return False
-            
-            # Load model
-            self.model = joblib.load(self.model_path)
-            
-            # Load scaler
-            if os.path.exists(self.scaler_path):
-                self.scaler = joblib.load(self.scaler_path)
-            
-            # Load metadata
-            if os.path.exists(self.metadata_path):
-                with open(self.metadata_path, 'r') as f:
-                    metadata = json.load(f)
-                    self.feature_names = metadata.get('feature_names', [])
-                    self.model_performance = metadata.get('model_performance', {})
-            
-            self.logger.info(f"Model loaded from {self.model_path}")
-            self.logger.info(f"Model performance: {self.model_performance.get('test_accuracy', 'N/A')}")
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error loading model: {e}")
-            return False
+    def _create_ensemble_models(self) -> Dict[str, Any]:
+        """Create individual models for ensemble"""
+        models = {}
+        
+        # Random Forest (primary model)
+        models['random_forest'] = RandomForestClassifier(**self.model_config['random_forest'])
+        
+        # XGBoost (gradient boosting)
+        models['xgboost'] = xgb.XGBClassifier(**self.model_config['xgboost'])
+        
+        # Logistic Regression (linear model)
+        models['logistic'] = LogisticRegression(**self.model_config['logistic'])
+        
+        return models
     
-    def get_model_info(self) -> Dict:
-        """Get information about the current model"""
-        if self.model is None:
-            return {'status': 'No model loaded'}
-        
-        info = {
-            'status': 'Model loaded',
-            'model_type': type(self.model).__name__,
-            'feature_count': len(self.feature_names),
-            'performance': self.model_performance,
-            'config': self.config
-        }
-        
-        if hasattr(self.model, 'n_estimators'):
-            info['n_estimators'] = self.model.n_estimators
-        
-        return info
-    
-    def validate_features(self, features: Dict[str, float]) -> bool:
-        """Validate that features contain required data"""
-        if not self.feature_names:
-            return False
-        
-        required_features = set(self.feature_names)
-        available_features = set(features.keys())
-        
-        missing_features = required_features - available_features
-        if missing_features:
-            self.logger.warning(f"Missing features: {missing_features}")
-            return False
-        
-        return True
-    
-    def retrain_if_needed(self, new_data: List[Dict]) -> bool:
-        """Check if model needs retraining and retrain if necessary"""
-        if not new_data:
-            return False
-        
-        # Check if we have enough new data for retraining
-        total_new_samples = sum(len(data.get('close', [])) for data in new_data)
-        
-        if total_new_samples >= self.config['retrain_threshold']:
-            self.logger.info(f"Retraining model with {total_new_samples} new samples...")
-            try:
-                self.train_model(new_data)
-                return True
-            except Exception as e:
-                self.logger.error(f"Retraining failed: {e}")
-                return False
-        
-        return False
-    
-    def get_feature_importance(self, top_n: int = 20) -> Dict[str, float]:
-        """Get feature importance from trained model"""
-        if self.model is None or not hasattr(self.model, 'feature_importances_'):
-            return {}
-        
-        importance_dict = dict(zip(self.feature_names, self.model.feature_importances_))
-        
-        # Sort by importance and return top N
-        sorted_importance = dict(sorted(
-            importance_dict.items(), 
-            key=lambda x: x[1], 
-            reverse=True
-        )[:top_n])
-        
-        return sorted_importance
-    
-    def analyze_prediction_confidence(self, confidence_history: List[float]) -> Dict:
-        """Analyze prediction confidence over time"""
-        if not confidence_history:
-            return {}
-        
-        confidences = np.array(confidence_history)
-        
-        analysis = {
-            'mean_confidence': np.mean(confidences),
-            'std_confidence': np.std(confidences),
-            'min_confidence': np.min(confidences),
-            'max_confidence': np.max(confidences),
-            'low_confidence_pct': np.mean(confidences < self.config['confidence_threshold']) * 100
-        }
-        
-        return analysis
-
-
-class ModelEvaluator:
-    """
-    Separate class for model evaluation and backtesting
-    """
-    
-    def __init__(self, ai_engine: AITradingEngine):
-        self.ai_engine = ai_engine
-        self.logger = logging.getLogger(__name__)
-    
-    def backtest_model(self, test_data: List[Dict], 
-                      initial_balance: float = 10000,
-                      risk_per_trade: float = 0.02) -> Dict:
+    def predict_enhanced(self, ohlcv_data: pd.DataFrame) -> Tuple[int, float, Dict[str, Any]]:
         """
-        Backtest the AI model on historical data
+        Make enhanced prediction with Volume Profile context
         
         Args:
-            test_data: Historical OHLC data for testing
-            initial_balance: Starting balance for backtest
+            ohlcv_data: Current OHLCV data
+            
+        Returns:
+            Tuple of (signal, confidence, prediction_details)
+        """
+        try:
+            if not self.model_trained or self.ensemble_model is None:
+                raise ValueError("Model not trained. Call train_enhanced_model() first.")
+            
+            # Generate enhanced features
+            features = self.feature_engineer.create_enhanced_features(ohlcv_data)
+            
+            # Convert to DataFrame with correct column order
+            features_df = pd.DataFrame([features])[self.feature_columns]
+            
+            # Handle missing features
+            features_df = features_df.fillna(0)
+            
+            # Scale features
+            features_scaled = self.feature_scaler.transform(features_df)
+            
+            # Get prediction probabilities
+            prediction_probs = self.ensemble_model.predict_proba(features_scaled)[0]
+            
+            # Get class prediction
+            predicted_class = self.ensemble_model.predict(features_scaled)[0]
+            
+            # Calculate confidence (max probability)
+            confidence = max(prediction_probs)
+            
+            # Get individual model predictions for analysis
+            individual_predictions = {}
+            for name, model in self.ensemble_model.named_estimators_.items():
+                try:
+                    pred_probs = model.predict_proba(features_scaled)[0]
+                    pred_class = model.predict(features_scaled)[0]
+                    individual_predictions[name] = {
+                        'class': int(pred_class),
+                        'confidence': float(max(pred_probs)),
+                        'probabilities': pred_probs.tolist()
+                    }
+                except Exception as e:
+                    self.logger.warning(f"Failed to get prediction from {name}: {e}")
+            
+            # Enhanced signal filtering
+            filtered_signal = self._apply_enhanced_filters(
+                predicted_class, confidence, features, individual_predictions
+            )
+            
+            # Prediction details
+            prediction_details = {
+                'raw_signal': int(predicted_class),
+                'filtered_signal': int(filtered_signal),
+                'confidence': float(confidence),
+                'probabilities': {
+                    'sell': float(prediction_probs[0]),   # -1 class
+                    'hold': float(prediction_probs[1]),   # 0 class  
+                    'buy': float(prediction_probs[2])     # 1 class
+                },
+                'individual_models': individual_predictions,
+                'feature_count': len(features),
+                'volume_profile_active': any(k.startswith('vp_') for k in features.keys()),
+                'vwap_active': any(k.startswith('vwap_') for k in features.keys()),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            # Track prediction
+            self._track_prediction(filtered_signal, confidence, prediction_details)
+            
+            return filtered_signal, confidence, prediction_details
+            
+        except Exception as e:
+            self.logger.error(f"Enhanced prediction failed: {e}")
+            # Return neutral signal with low confidence
+            return 0, 0.0, {'error': str(e), 'timestamp': datetime.now().isoformat()}
+    
+    def _apply_enhanced_filters(self, raw_signal: int, confidence: float, 
+                              features: Dict[str, float], 
+                              individual_predictions: Dict[str, Any]) -> int:
+        """
+        Apply enhanced filtering logic using Volume Profile and VWAP context
+        
+        Args:
+            raw_signal: Raw model prediction
+            confidence: Prediction confidence
+            features: Current features
+            individual_predictions: Individual model predictions
+            
+        Returns:
+            Filtered signal
+        """
+        try:
+            # Base confidence filter
+            if confidence < self.confidence_threshold:
+                return 0  # Hold if confidence too low
+            
+            # Model consensus filter
+            model_signals = [pred['class'] for pred in individual_predictions.values()]
+            consensus_score = sum(1 for signal in model_signals if signal == raw_signal) / len(model_signals)
+            
+            if consensus_score < 0.6:  # At least 60% agreement
+                return 0  # Hold if no consensus
+            
+            # Volume Profile filters
+            vp_filters_passed = self._check_volume_profile_filters(raw_signal, features)
+            if not vp_filters_passed:
+                return 0
+            
+            # VWAP filters
+            vwap_filters_passed = self._check_vwap_filters(raw_signal, features)
+            if not vwap_filters_passed:
+                return 0
+            
+            # Market structure filters
+            structure_filters_passed = self._check_market_structure_filters(raw_signal, features)
+            if not structure_filters_passed:
+                return 0
+            
+            # Risk management filters
+            risk_filters_passed = self._check_risk_filters(raw_signal, features)
+            if not risk_filters_passed:
+                return 0
+            
+            return raw_signal
+            
+        except Exception as e:
+            self.logger.warning(f"Filter application failed: {e}")
+            return 0  # Conservative: return hold signal on filter error
+    
+    def _check_volume_profile_filters(self, signal: int, features: Dict[str, float]) -> bool:
+        """Check Volume Profile based filters"""
+        try:
+            # POC alignment filter
+            poc_distance = abs(features.get('vp_poc_distance', 0))
+            if poc_distance > 0.005:  # More than 0.5% from POC
+                if signal == 1 and features.get('vp_price_above_poc', 0) == 0:
+                    return False  # Don't buy below POC when far from it
+                if signal == -1 and features.get('vp_price_above_poc', 0) == 1:
+                    return False  # Don't sell above POC when far from it
+            
+            # Value Area filter
+            in_value_area = features.get('vp_price_in_value_area', 0)
+            if in_value_area == 0:  # Outside value area
+                # Be more conservative
+                if abs(signal) == 1:  # Only take strong signals outside VA
+                    poc_strength = features.get('vp_poc_strength', 0)
+                    if poc_strength < 0.05:  # Weak POC
+                        return False
+            
+            # Volume Profile strength filter
+            profile_strength = features.get('vp_profile_strength', 0)
+            if profile_strength < 0.02:  # Very weak volume profile
+                return False  # Don't trade on weak volume data
+            
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"Volume Profile filter check failed: {e}")
+            return True  # Allow signal if filter check fails
+    
+    def _check_vwap_filters(self, signal: int, features: Dict[str, float]) -> bool:
+        """Check VWAP based filters"""
+        try:
+            # VWAP trend alignment
+            vwap_slope = features.get('vwap_slope', 0)
+            
+            if signal == 1:  # Buy signal
+                # Check if VWAP is trending up or price is above VWAP
+                vwap_bullish = (
+                    vwap_slope > 0.0001 or 
+                    features.get('vwap_session_price_above_vwap', 0) == 1
+                )
+                if not vwap_bullish:
+                    return False
+            
+            elif signal == -1:  # Sell signal
+                # Check if VWAP is trending down or price is below VWAP
+                vwap_bearish = (
+                    vwap_slope < -0.0001 or 
+                    features.get('vwap_session_price_above_vwap', 0) == 0
+                )
+                if not vwap_bearish:
+                    return False
+            
+            # VWAP band filter
+            band_position = features.get('vwap_session_vwap_band_position', 0.5)
+            
+            if signal == 1 and band_position > 0.8:  # Don't buy at upper band
+                return False
+            if signal == -1 and band_position < 0.2:  # Don't sell at lower band
+                return False
+            
+            # Multi-timeframe VWAP alignment
+            vwap_alignment = features.get('vwap_alignment', 0.5)
+            
+            if signal == 1 and vwap_alignment < 0.5:  # Buy only with bullish alignment
+                return False
+            if signal == -1 and vwap_alignment > 0.5:  # Sell only with bearish alignment
+                return False
+            
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"VWAP filter check failed: {e}")
+            return True
+    
+    def _check_market_structure_filters(self, signal: int, features: Dict[str, float]) -> bool:
+        """Check market structure filters"""
+        try:
+            # Momentum alignment
+            momentum_bullish = features.get('momentum_bullish', 0)
+            multi_tf_bullish = features.get('multi_timeframe_bullish', 0.5)
+            
+            if signal == 1:  # Buy signal
+                # Need bullish momentum and structure
+                if momentum_bullish == 0 and multi_tf_bullish < 0.6:
+                    return False
+            
+            elif signal == -1:  # Sell signal
+                # Need bearish momentum and structure
+                if momentum_bullish == 1 and multi_tf_bullish > 0.4:
+                    return False
+            
+            # Support/Resistance proximity
+            near_resistance = features.get('near_resistance', 0)
+            near_support = features.get('near_support', 0)
+            
+            if signal == 1 and near_resistance == 1:  # Don't buy near resistance
+                return False
+            if signal == -1 and near_support == 1:  # Don't sell near support
+                return False
+            
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"Market structure filter check failed: {e}")
+            return True
+    
+    def _check_risk_filters(self, signal: int, features: Dict[str, float]) -> bool:
+        """Check risk management filters"""
+        try:
+            # Volatility regime filter
+            volatility_regime = features.get('volatility_regime', 1.0)
+            
+            # Don't trade in extremely high volatility
+            if volatility_regime >= 2.0:
+                return False
+            
+            # Be more conservative in low volatility (squeeze)
+            if volatility_regime == 0.0 and abs(signal) == 1:
+                # Only allow trades with very high confidence in low vol
+                # This would need to be checked at higher level
+                pass
+            
+            # Technical indicator confluence
+            rsi = features.get('rsi', 50)
+            
+            # Don't buy in extreme overbought
+            if signal == 1 and rsi > 80:
+                return False
+                
+            # Don't sell in extreme oversold
+            if signal == -1 and rsi < 20:
+                return False
+            
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"Risk filter check failed: {e}")
+            return True
+    
+    def _track_prediction(self, signal: int, confidence: float, details: Dict[str, Any]):
+        """Track prediction for performance analysis"""
+        try:
+            prediction_record = {
+                'timestamp': datetime.now(),
+                'signal': signal,
+                'confidence': confidence,
+                'raw_signal': details.get('raw_signal', signal),
+                'feature_count': details.get('feature_count', 0),
+                'volume_profile_active': details.get('volume_profile_active', False),
+                'vwap_active': details.get('vwap_active', False)
+            }
+            
+            self.prediction_history.append(prediction_record)
+            
+            # Keep only last 1000 predictions
+            if len(self.prediction_history) > 1000:
+                self.prediction_history = self.prediction_history[-1000:]
+                
+        except Exception as e:
+            self.logger.warning(f"Prediction tracking failed: {e}")
+    
+    def get_model_performance_stats(self) -> Dict[str, Any]:
+        """Get current model performance statistics"""
+        try:
+            if not self.prediction_history:
+                return {'error': 'No predictions recorded yet'}
+            
+            recent_predictions = self.prediction_history[-100:]  # Last 100 predictions
+            
+            # Signal distribution
+            signals = [p['signal'] for p in recent_predictions]
+            signal_counts = {-1: 0, 0: 0, 1: 0}
+            for signal in signals:
+                signal_counts[signal] = signal_counts.get(signal, 0) + 1
+            
+            # Confidence statistics
+            confidences = [p['confidence'] for p in recent_predictions]
+            
+            # Filter effectiveness
+            raw_signals = [p['raw_signal'] for p in recent_predictions]
+            filtered_signals = [p['signal'] for p in recent_predictions]
+            filter_changes = sum(1 for i in range(len(raw_signals)) 
+                               if raw_signals[i] != filtered_signals[i])
+            
+            stats = {
+                'total_predictions': len(self.prediction_history),
+                'recent_predictions': len(recent_predictions),
+                'signal_distribution': {
+                    'sell': signal_counts[-1],
+                    'hold': signal_counts[0],
+                    'buy': signal_counts[1]
+                },
+                'confidence_stats': {
+                    'mean': np.mean(confidences),
+                    'std': np.std(confidences),
+                    'min': np.min(confidences),
+                    'max': np.max(confidences)
+                },
+                'filter_effectiveness': {
+                    'filter_rate': filter_changes / len(recent_predictions),
+                    'signals_filtered': filter_changes
+                },
+                'feature_usage': {
+                    'volume_profile_usage': sum(1 for p in recent_predictions 
+                                               if p.get('volume_profile_active', False)) / len(recent_predictions),
+                    'vwap_usage': sum(1 for p in recent_predictions 
+                                     if p.get('vwap_active', False)) / len(recent_predictions)
+                }
+            }
+            
+            return stats
+            
+        except Exception as e:
+            self.logger.error(f"Performance stats calculation failed: {e}")
+            return {'error': str(e)}
+    
+    def save_enhanced_model(self, filepath: str) -> bool:
+        """Save the enhanced model and scaler"""
+        try:
+            if not self.model_trained:
+                raise ValueError("No trained model to save")
+            
+            model_data = {
+                'ensemble_model': self.ensemble_model,
+                'feature_scaler': self.feature_scaler,
+                'feature_columns': self.feature_columns,
+                'model_config': self.model_config,
+                'symbol': self.symbol,
+                'timeframe': self.timeframe,
+                'confidence_threshold': self.confidence_threshold,
+                'training_timestamp': datetime.now().isoformat()
+            }
+            
+            joblib.dump(model_data, filepath)
+            self.logger.info(f"Enhanced model saved to {filepath}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Model saving failed: {e}")
+            return False
+    
+    def load_enhanced_model(self, filepath: str) -> bool:
+        """Load the enhanced model and scaler"""
+        try:
+            model_data = joblib.load(filepath)
+            
+            self.ensemble_model = model_data['ensemble_model']
+            self.feature_scaler = model_data['feature_scaler']
+            self.feature_columns = model_data['feature_columns']
+            self.model_config = model_data.get('model_config', self.model_config)
+            self.confidence_threshold = model_data.get('confidence_threshold', 0.65)
+            
+            self.model_trained = True
+            
+            training_time = model_data.get('training_timestamp', 'Unknown')
+            self.logger.info(f"Enhanced model loaded from {filepath} (trained: {training_time})")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Model loading failed: {e}")
+            return False
+
+
+# Enhanced Model Evaluator for Volume Profile models
+class EnhancedModelEvaluator:
+    """Enhanced model evaluation with Volume Profile context"""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+    
+    def comprehensive_backtest(self, ai_engine: EnhancedAIEngine, 
+                             ohlcv_data: pd.DataFrame,
+                             initial_balance: float = 10000,
+                             risk_per_trade: float = 0.02) -> Dict[str, Any]:
+        """
+        Comprehensive backtesting with Volume Profile context
+        
+        Args:
+            ai_engine: Trained enhanced AI engine
+            ohlcv_data: Historical data for backtesting
+            initial_balance: Starting balance
             risk_per_trade: Risk percentage per trade
             
         Returns:
-            Dictionary with backtest results
+            Detailed backtesting results
         """
-        self.logger.info("Starting model backtest...")
-        
-        results = {
-            'trades': [],
-            'equity_curve': [],
-            'performance_metrics': {}
-        }
-        
-        balance = initial_balance
-        equity = initial_balance
-        open_position = None
-        
-        for data_chunk in test_data:
-            close_prices = data_chunk['close']
-            high_prices = data_chunk['high']
-            low_prices = data_chunk['low']
+        try:
+            self.logger.info("🧪 Starting enhanced backtesting...")
             
-            for i in range(50, len(close_prices)):  # Start after enough data for indicators
-                current_data = {
-                    'open': data_chunk['open'][:i+1],
-                    'high': data_chunk['high'][:i+1],
-                    'low': data_chunk['low'][:i+1],
-                    'close': data_chunk['close'][:i+1]
-                }
+            balance = initial_balance
+            position = 0  # 0 = no position, 1 = long, -1 = short
+            entry_price = 0
+            trades = []
+            equity_curve = []
+            
+            # Start backtesting from bar 200 (need history for features)
+            start_idx = 200
+            
+            for i in range(start_idx, len(ohlcv_data) - 1):
+                current_data = ohlcv_data.iloc[:i+1]
+                current_price = current_data['close'].iloc[-1]
+                next_price = ohlcv_data['close'].iloc[i+1]
                 
-                current_price = close_prices[i]
-                
+                # Get AI prediction
                 try:
-                    # Get AI prediction
-                    signal, confidence, metadata = self.ai_engine.predict(current_data)
-                    
-                    # Close existing position if signal changes or stop/target hit
-                    if open_position:
-                        position_pnl = self._check_position_exit(
-                            open_position, current_price, high_prices[i], low_prices[i]
-                        )
-                        
-                        if position_pnl is not None:
-                            # Close position
-                            balance += position_pnl
-                            equity = balance
-                            
-                            results['trades'].append({
-                                'entry_price': open_position['entry_price'],
-                                'exit_price': current_price,
-                                'direction': open_position['direction'],
-                                'pnl': position_pnl,
-                                'duration': i - open_position['entry_bar']
-                            })
-                            
-                            open_position = None
-                    
-                    # Open new position if signal and no current position
-                    if signal != 0 and open_position is None and confidence >= 0.7:
-                        position_size = self._calculate_position_size(
-                            balance, current_price, risk_per_trade
-                        )
-                        
-                        open_position = {
-                            'direction': signal,
-                            'entry_price': current_price,
-                            'entry_bar': i,
-                            'size': position_size,
-                            'stop_loss': self._calculate_stop_loss(current_price, signal),
-                            'take_profit': self._calculate_take_profit(current_price, signal)
-                        }
-                    
-                    # Record equity
-                    if open_position:
-                        unrealized_pnl = self._calculate_unrealized_pnl(
-                            open_position, current_price
-                        )
-                        current_equity = balance + unrealized_pnl
-                    else:
-                        current_equity = balance
-                    
-                    results['equity_curve'].append({
-                        'bar': i,
-                        'price': current_price,
-                        'balance': balance,
-                        'equity': current_equity,
-                        'signal': signal,
-                        'confidence': confidence
-                    })
-                
+                    signal, confidence, details = ai_engine.predict_enhanced(current_data)
                 except Exception as e:
-                    self.logger.error(f"Backtest error at bar {i}: {e}")
+                    signal, confidence = 0, 0.0
                     continue
-        
-        # Calculate performance metrics
-        results['performance_metrics'] = self._calculate_performance_metrics(
-            results, initial_balance
-        )
-        
-        self.logger.info(f"Backtest completed: {len(results['trades'])} trades")
-        return results
-    
-    def _check_position_exit(self, position: Dict, current_price: float, 
-                           high: float, low: float) -> Optional[float]:
-        """Check if position should be closed and return P&L"""
-        direction = position['direction']
-        entry_price = position['entry_price']
-        stop_loss = position['stop_loss']
-        take_profit = position['take_profit']
-        size = position['size']
-        
-        if direction == 1:  # Long position
-            if low <= stop_loss:
-                # Stop loss hit
-                return size * (stop_loss - entry_price)
-            elif high >= take_profit:
-                # Take profit hit
-                return size * (take_profit - entry_price)
-        elif direction == -1:  # Short position
-            if high >= stop_loss:
-                # Stop loss hit
-                return size * (entry_price - stop_loss)
-            elif low <= take_profit:
-                # Take profit hit
-                return size * (entry_price - take_profit)
-        
-        return None
-    
-    def _calculate_position_size(self, balance: float, price: float, 
-                               risk_pct: float) -> float:
-        """Calculate position size based on risk management"""
-        risk_amount = balance * risk_pct
-        # Simplified position sizing - in real implementation would use ATR
-        stop_distance = price * 0.005  # 0.5% stop loss
-        return risk_amount / stop_distance
-    
-    def _calculate_stop_loss(self, entry_price: float, direction: int) -> float:
-        """Calculate stop loss level"""
-        stop_distance = entry_price * 0.005  # 0.5% stop
-        if direction == 1:
-            return entry_price - stop_distance
-        else:
-            return entry_price + stop_distance
-    
-    def _calculate_take_profit(self, entry_price: float, direction: int) -> float:
-        """Calculate take profit level"""
-        profit_distance = entry_price * 0.015  # 1.5% target
-        if direction == 1:
-            return entry_price + profit_distance
-        else:
-            return entry_price - profit_distance
-    
-    def _calculate_unrealized_pnl(self, position: Dict, current_price: float) -> float:
-        """Calculate unrealized P&L for open position"""
-        direction = position['direction']
-        entry_price = position['entry_price']
-        size = position['size']
-        
-        if direction == 1:
-            return size * (current_price - entry_price)
-        else:
-            return size * (entry_price - current_price)
-    
-    def _calculate_performance_metrics(self, results: Dict, initial_balance: float) -> Dict:
-        """Calculate comprehensive performance metrics"""
-        trades = results['trades']
-        equity_curve = results['equity_curve']
-        
-        if not trades:
-            return {'error': 'No trades to analyze'}
-        
-        # Basic metrics
-        total_trades = len(trades)
-        winning_trades = [t for t in trades if t['pnl'] > 0]
-        losing_trades = [t for t in trades if t['pnl'] < 0]
-        
-        win_rate = len(winning_trades) / total_trades if total_trades > 0 else 0
-        
-        # P&L metrics
-        total_pnl = sum(t['pnl'] for t in trades)
-        gross_profit = sum(t['pnl'] for t in winning_trades)
-        gross_loss = abs(sum(t['pnl'] for t in losing_trades))
-        
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
-        
-        # Average metrics
-        avg_win = np.mean([t['pnl'] for t in winning_trades]) if winning_trades else 0
-        avg_loss = np.mean([t['pnl'] for t in losing_trades]) if losing_trades else 0
-        avg_trade = total_pnl / total_trades if total_trades > 0 else 0
-        
-        # Drawdown calculation
-        equity_values = [e['equity'] for e in equity_curve]
-        max_drawdown = self._calculate_max_drawdown(equity_values)
-        
-        # Return metrics
-        final_balance = equity_values[-1] if equity_values else initial_balance
-        total_return = (final_balance - initial_balance) / initial_balance * 100
-        
-        # Sharpe ratio (simplified)
-        returns = np.diff(equity_values) / equity_values[:-1] if len(equity_values) > 1 else [0]
-        sharpe_ratio = np.mean(returns) / np.std(returns) * np.sqrt(252) if np.std(returns) > 0 else 0
-        
-        return {
-            'total_trades': total_trades,
-            'winning_trades': len(winning_trades),
-            'losing_trades': len(losing_trades),
-            'win_rate': win_rate,
-            'total_pnl': total_pnl,
-            'gross_profit': gross_profit,
-            'gross_loss': gross_loss,
-            'profit_factor': profit_factor,
-            'avg_win': avg_win,
-            'avg_loss': avg_loss,
-            'avg_trade': avg_trade,
-            'max_drawdown': max_drawdown,
-            'total_return': total_return,
-            'sharpe_ratio': sharpe_ratio,
-            'final_balance': final_balance
-        }
-    
-    def _calculate_max_drawdown(self, equity_curve: List[float]) -> float:
-        """Calculate maximum drawdown"""
-        if not equity_curve:
-            return 0
-        
-        peak = equity_curve[0]
-        max_dd = 0
-        
-        for equity in equity_curve:
-            if equity > peak:
-                peak = equity
+                
+                # Process signal
+                if position == 0:  # No position
+                    if signal != 0 and confidence > 0.7:  # Higher threshold for backtest
+                        # Calculate position size
+                        risk_amount = balance * risk_per_trade
+                        
+                        # Simple position sizing (could be enhanced)
+                        position_size = risk_amount / (current_price * 0.01)  # 1% stop loss
+                        
+                        position = signal
+                        entry_price = current_price
+                        
+                        trade_record = {
+                            'entry_time': i,
+                            'entry_price': entry_price,
+                            'signal': signal,
+                            'confidence': confidence,
+                            'position_size': position_size,
+                            'volume_profile_active': details.get('volume_profile_active', False),
+                            'vwap_active': details.get('vwap_active', False)
+                        }
+                        trades.append(trade_record)
+                
+                elif position != 0:  # Have position
+                    # Check for exit conditions
+                    should_exit = False
+                    exit_reason = ""
+                    
+                    # Opposite signal
+                    if signal != 0 and signal != position:
+                        should_exit = True
+                        exit_reason = "opposite_signal"
+                    
+                    # Stop loss / Take profit (simple)
+                    pnl_pct = (next_price - entry_price) / entry_price * position
+                    if pnl_pct <= -0.02:  # 2% stop loss
+                        should_exit = True
+                        exit_reason = "stop_loss"
+                    elif pnl_pct >= 0.04:  # 4% take profit
+                        should_exit = True
+                        exit_reason = "take_profit"
+                    
+                    if should_exit:
+                        # Close position
+                        trade = trades[-1]
+                        trade['exit_time'] = i
+                        trade['exit_price'] = next_price
+                        trade['exit_reason'] = exit_reason
+                        
+                        # Calculate P&L
+                        pnl = (next_price - entry_price) * position * trade['position_size']
+                        trade['pnl'] = pnl
+                        trade['pnl_pct'] = pnl_pct
+                        
+                        balance += pnl
+                        position = 0
+                        entry_price = 0
+                
+                # Record equity
+                equity_curve.append({
+                    'time': i,
+                    'balance': balance,
+                    'price': current_price
+                })
+                
+                if i % 100 == 0:
+                    self.logger.info(f"Processed {i - start_idx} bars...")
             
-            drawdown = (peak - equity) / peak if peak > 0 else 0
-            max_dd = max(max_dd, drawdown)
-        
-        return max_dd * 100  # Return as percentage
-
-
-# Example usage and testing functions
-def create_sample_data(n_bars: int = 1000) -> Dict:
-    """Create sample OHLC data for testing"""
-    np.random.seed(42)
-    
-    # Generate random walk price data
-    base_price = 1.1000
-    price_changes = np.random.normal(0, 0.001, n_bars)
-    close_prices = [base_price]
-    
-    for change in price_changes:
-        new_price = close_prices[-1] * (1 + change)
-        close_prices.append(new_price)
-    
-    close_prices = close_prices[1:]  # Remove first element
-    
-    # Generate OHLC from close prices
-    ohlc_data = {
-        'open': [],
-        'high': [],
-        'low': [],
-        'close': close_prices
-    }
-    
-    for i, close in enumerate(close_prices):
-        if i == 0:
-            open_price = close
-        else:
-            open_price = close_prices[i-1]
-        
-        # Add some random variation for high/low
-        high = max(open_price, close) + abs(np.random.normal(0, 0.0005))
-        low = min(open_price, close) - abs(np.random.normal(0, 0.0005))
-        
-        ohlc_data['open'].append(open_price)
-        ohlc_data['high'].append(high)
-        ohlc_data['low'].append(low)
-    
-    return ohlc_data
-
-
-def test_ai_engine():
-    """Test function for AI engine"""
-    print("Testing AI Trading Engine...")
-    
-    # Create AI engine
-    ai_engine = AITradingEngine()
-    
-    # Create sample data
-    sample_data = create_sample_data(2000)
-    training_data = [sample_data]
-    
-    # Train model
-    print("Training model...")
-    performance = ai_engine.train_model(training_data)
-    print(f"Training completed with accuracy: {performance['test_accuracy']:.3f}")
-    
-    # Test prediction
-    test_data = {
-        'open': sample_data['open'][-100:],
-        'high': sample_data['high'][-100:],
-        'low': sample_data['low'][-100:],
-        'close': sample_data['close'][-100:]
-    }
-    
-    signal, confidence, metadata = ai_engine.predict(test_data)
-    print(f"Prediction: {signal}, Confidence: {confidence:.3f}")
-    
-    # Test backtest
-    print("Running backtest...")
-    evaluator = ModelEvaluator(ai_engine)
-    backtest_results = evaluator.backtest_model([sample_data])
-    
-    metrics = backtest_results['performance_metrics']
-    print(f"Backtest results:")
-    print(f"  Total trades: {metrics.get('total_trades', 0)}")
-    print(f"  Win rate: {metrics.get('win_rate', 0):.1%}")
-    print(f"  Total return: {metrics.get('total_return', 0):.1f}%")
-    
-    return ai_engine
+            # Calculate performance metrics
+            completed_trades = [t for t in trades if 'exit_price' in t]
+            
+            if not completed_trades:
+                return {'error': 'No completed trades in backtest period'}
+            
+            # Performance calculations
+            total_trades = len(completed_trades)
+            winning_trades = len([t for t in completed_trades if t['pnl'] > 0])
+            losing_trades = total_trades - winning_trades
+            
+            win_rate = winning_trades / total_trades if total_trades > 0 else 0
+            
+            total_pnl = sum(t['pnl'] for t in completed_trades)
+            total_return = (balance - initial_balance) / initial_balance
+            
+            winning_pnls = [t['pnl'] for t in completed_trades if t['pnl'] > 0]
+            losing_pnls = [t['pnl'] for t in completed_trades if t['pnl'] <= 0]
+            
+            avg_win = np.mean(winning_pnls) if winning_pnls else 0
+            avg_loss = np.mean(losing_pnls) if losing_pnls else 0
+            
+            profit_factor = abs(sum(winning_pnls) / sum(losing_pnls)) if losing_pnls else float('inf')
+            
+            # Drawdown calculation
+            equity_values = [e['balance'] for e in equity_curve]
+            peak = equity_values[0]
+            max_drawdown = 0
+            
+            for equity in equity_values:
+                if equity > peak:
+                    peak = equity
+                drawdown = (peak - equity) / peak
+                max_drawdown = max(max_drawdown, drawdown)
+            
+            # Enhanced metrics with Volume Profile context
+            vp_trades = [t for t in completed_trades if t.get('volume_profile_active', False)]
+            vwap_trades = [t for t in completed_trades if t.get('vwap_active', False)]
+            
+            results = {
+                'total_return': total_return,
+                'total_pnl': total_pnl,
+                'total_trades': total_trades,
+                'winning_trades': winning_trades,
+                'losing_trades': losing_trades,
+                'win_rate': win_rate,
+                'profit_factor': profit_factor,
+                'avg_win': avg_win,
+                'avg_loss': avg_loss,
+                'max_drawdown': max_drawdown,
+                'final_balance': balance,
+                'enhanced_features': {
+                    'volume_profile_trades': len(vp_trades),
+                    'vwap_trades': len(vwap_trades),
+                    'vp_win_rate': len([t for t in vp_trades if t['pnl'] > 0]) / len(vp_trades) if vp_trades else 0,
+                    'vwap_win_rate': len([t for t in vwap_trades if t['pnl'] > 0]) / len(vwap_trades) if vwap_trades else 0
+                },
+                'trades': completed_trades,
+                'equity_curve': equity_curve
+            }
+            
+            self.logger.info("✅ Enhanced backtesting complete!")
+            self.logger.info(f"   📊 Total Return: {total_return:.4f}")
+            self.logger.info(f"   📈 Win Rate: {win_rate:.4f}")
+            self.logger.info(f"   💰 Profit Factor: {profit_factor:.4f}")
+            self.logger.info(f"   📉 Max Drawdown: {max_drawdown:.4f}")
+            
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Enhanced backtesting failed: {e}")
+            raise
 
 
 if __name__ == "__main__":
-    test_ai_engine()
+    # Testing Enhanced AI Engine
+    logging.basicConfig(level=logging.INFO)
+    
+    print("🧪 Testing Enhanced AI Engine...")
+    
+    # Create sample data (more comprehensive)
+    np.random.seed(42)
+    dates = pd.date_range('2024-01-01', periods=2000, freq='15min')
+    
+    # Generate realistic EURUSD data with trends
+    prices = []
+    volumes = []
+    base_price = 1.1000
+    trend = 0.00001  # Small upward trend
+    
+    for i in range(len(dates)):
+        # Add trend and noise
+        price_change = trend + np.random.normal(0, 0.0008)
+        base_price += price_change
+        
+        # OHLC generation
+        open_price = base_price
+        high_price = open_price + abs(np.random.normal(0, 0.0005))
+        low_price = open_price - abs(np.random.normal(0, 0.0005))
+        close_price = open_price + np.random.normal(0, 0.0003)
+        close_price = max(min(close_price, high_price), low_price)
+        
+        # Volume with some correlation to volatility
+        volatility = abs(high_price - low_price)
+        volume = abs(np.random.normal(1000 + volatility * 100000, 300))
+        
+        prices.append([open_price, high_price, low_price, close_price])
+        volumes.append(volume)
+    
+    ohlcv_df = pd.DataFrame(prices, columns=['open', 'high', 'low', 'close'], index=dates)
+    ohlcv_df['volume'] = volumes
+    
+    print(f"✅ Generated {len(ohlcv_df)} bars of test data")
+    
+    # Test Enhanced AI Engine
+    enhanced_ai = EnhancedAIEngine("EURUSD", "M15")
+    
+    # Train model
+    print("\n🧪 Training enhanced AI model...")
+    training_results = enhanced_ai.train_enhanced_model(ohlcv_df[:1500])  # Use first 1500 bars for training
+    
+    print(f"✅ Training Results:")
+    print(f"   📊 Ensemble Accuracy: {training_results['ensemble_accuracy']:.4f}")
+    print(f"   📈 Cross-validation: {training_results['cv_mean']:.4f} ± {training_results['cv_std']:.4f}")
+    print(f"   🔥 Features: {training_results['feature_count']}")
+    
+    # Test prediction
+    print("\n🧪 Testing enhanced prediction...")
+    test_data = ohlcv_df[:1600]  # Use data up to bar 1600
+    signal, confidence, details = enhanced_ai.predict_enhanced(test_data)
+    
+    print(f"✅ Prediction Results:")
+    print(f"   📊 Signal: {signal}")
+    print(f"   📈 Confidence: {confidence:.4f}")
+    print(f"   🔥 Volume Profile Active: {details['volume_profile_active']}")
+    print(f"   ⚡ VWAP Active: {details['vwap_active']}")
+    
+    # Test backtesting
+    print("\n🧪 Testing enhanced backtesting...")
+    evaluator = EnhancedModelEvaluator()
+    backtest_results = evaluator.comprehensive_backtest(
+        enhanced_ai, 
+        ohlcv_df[1500:1800],  # Use bars 1500-1800 for backtest
+        initial_balance=10000,
+        risk_per_trade=0.02
+    )
+    
+    print(f"✅ Backtest Results:")
+    print(f"   📊 Total Return: {backtest_results['total_return']:.4f}")
+    print(f"   📈 Win Rate: {backtest_results['win_rate']:.4f}")
+    print(f"   💰 Profit Factor: {backtest_results['profit_factor']:.4f}")
+    print(f"   📉 Max Drawdown: {backtest_results['max_drawdown']:.4f}")
+    
+    # Test model persistence
+    print("\n🧪 Testing model save/load...")
+    save_success = enhanced_ai.save_enhanced_model("test_enhanced_model.pkl")
+    print(f"✅ Model saved: {save_success}")
+    
+    # Create new instance and load
+    new_ai = EnhancedAIEngine("EURUSD", "M15")
+    load_success = new_ai.load_enhanced_model("test_enhanced_model.pkl")
+    print(f"✅ Model loaded: {load_success}")
+    
+    print(f"\n🎯 Enhanced AI Engine Ready for Phase 2 Integration!")
+    print(f"   🚀 Volume Profile: Operational")
+    print(f"   💪 VWAP Analysis: Multi-timeframe ready")
+    print(f"   ⚡ Ensemble Models: 3-model voting system")
+    print(f"   🧠 Enhanced Filtering: VP + VWAP + Structure")
+    print(f"   📊 Performance Tracking: Real-time monitoring")

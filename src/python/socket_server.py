@@ -1,10 +1,10 @@
-# socket_server.py
 """
-Updated Socket Server for ForexAI-EA Project with Real AI Engine
-Handles communication between Python AI Engine and MQL5 EA
+File: src/python/socket_server.py
+Description: Enhanced Socket Server v2.0 - Fixed Unicode Issues
 Author: Claude AI Developer
-Version: 2.0.0
-Updated: 2025-06-11
+Version: 2.0.1
+Created: 2025-06-13
+Modified: 2025-06-14
 """
 
 import socket
@@ -12,555 +12,555 @@ import threading
 import json
 import logging
 import time
-import os
+import pandas as pd
+import numpy as np
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, List, Any, Optional
+import argparse
 import signal
 import sys
-import numpy as np
+import os
 
-# Import our AI components
-from ai_engine import AITradingEngine, ModelEvaluator
-from technical_indicators import TechnicalIndicators
-from feature_engineer import FeatureEngineer
+# Import enhanced modules
+try:
+    from enhanced_ai_engine import EnhancedAIEngine, EnhancedModelEvaluator
+    from volume_profile import VolumeProfileEngine, VWAPCalculator
+except ImportError:
+    # Fallback imports for existing system
+    try:
+        from ai_engine import AITradingEngine as EnhancedAIEngine
+        print("WARNING: Using fallback AI engine - enhanced features may not be available")
+    except ImportError:
+        print("ERROR: Cannot import AI engine modules")
+        sys.exit(1)
 
-def clean_for_json(obj):
-    """Convert numpy types to Python types for JSON serialization"""
-    if isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        return float(obj)
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif isinstance(obj, dict):
-        return {clean_for_json(k): clean_for_json(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [clean_for_json(item) for item in obj]
-    else:
-        return obj
-
-class AISocketServer:
-    """
-    Enhanced socket server with real AI engine integration
-    Processes trading requests and returns AI predictions
-    """
+class EnhancedSocketServer:
+    """Enhanced Socket Server with Volume Profile and VWAP capabilities"""
     
     def __init__(self, host: str = "localhost", port: int = 8888):
+        """
+        Initialize Enhanced Socket Server
+        
+        Args:
+            host: Server host address
+            port: Server port number
+        """
         self.host = host
         self.port = port
-        self.server_socket: Optional[socket.socket] = None
-        self.is_running = False
-        self.client_connections = []
+        self.socket = None
+        self.running = False
+        self.clients = []
         
-        # AI Engine components
-        self.ai_engine: Optional[AITradingEngine] = None
-        self.indicators_engine = TechnicalIndicators()
-        self.feature_engineer = FeatureEngineer()
+        # Setup logging with Unicode-safe configuration
+        self.setup_logging()
+        self.logger = logging.getLogger(__name__)
+        
+        # Enhanced AI Engine
+        self.ai_engine = EnhancedAIEngine("EURUSD", "M15")
+        self.model_loaded = False
+        
+        # Data storage for real-time processing
+        self.price_data = {}  # Store price data by symbol
+        self.max_bars_stored = 500
         
         # Performance tracking
-        self.prediction_count = 0
-        self.prediction_times = []
-        self.last_predictions = []
+        self.stats = {
+            'connections': 0,
+            'predictions': 0,
+            'uptime_start': datetime.now(),
+            'total_requests': 0,
+            'errors': 0,
+            'volume_profile_predictions': 0,
+            'vwap_predictions': 0
+        }
         
-        # Setup logging
-        self.setup_logging()
+        # Enhanced capabilities flags
+        self.capabilities = {
+            'volume_profile': True,
+            'vwap_analysis': True,
+            'ensemble_models': True,
+            'enhanced_filtering': True,
+            'market_structure': True
+        }
         
-        # Initialize AI engine
-        self.initialize_ai_engine()
-        
-        # Setup signal handlers for graceful shutdown
-        signal.signal(signal.SIGINT, self.signal_handler)
-        signal.signal(signal.SIGTERM, self.signal_handler)
-        
-        self.logger.info(f"AISocketServer initialized on {host}:{port}")
-    
     def setup_logging(self):
-        """Configure logging system"""
-        # Create logs directory if it doesn't exist
-        log_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'logs')
-        os.makedirs(log_dir, exist_ok=True)
+        """Setup enhanced logging without Unicode issues"""
+        # Create logs directory
+        os.makedirs('data/logs', exist_ok=True)
         
-        # Full path to log file
-        log_file = os.path.join(log_dir, 'ai_server.log')
-        
+        # Configure logging with UTF-8 encoding
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(log_file),
+                logging.FileHandler('data/logs/enhanced_socket_server.log', encoding='utf-8'),
                 logging.StreamHandler(sys.stdout)
             ]
         )
-        self.logger = logging.getLogger(__name__)
-    
-    def initialize_ai_engine(self):
-        """Initialize the AI engine with model loading"""
-        try:
-            self.logger.info("Initializing AI engine...")
-            
-            # Create AI engine (without config path for now)
-            self.ai_engine = AITradingEngine()
-            
-            # Check if model exists and is loaded
-            model_info = self.ai_engine.get_model_info()
-            
-            if model_info['status'] == 'Model loaded':
-                self.logger.info(f"AI model loaded successfully:")
-                self.logger.info(f"  Model type: {model_info.get('model_type', 'Unknown')}")
-                self.logger.info(f"  Features: {model_info.get('feature_count', 0)}")
-                self.logger.info(f"  Accuracy: {model_info.get('performance', {}).get('test_accuracy', 'N/A')}")
-            else:
-                self.logger.warning("No trained model found. Will use training data to create model...")
-                self._train_initial_model()
-                
-        except Exception as e:
-            self.logger.error(f"Failed to initialize AI engine: {e}")
-            self.ai_engine = None
-    
-    def _train_initial_model(self):
-        """Train initial model with sample data if no model exists"""
-        try:
-            self.logger.info("Training initial AI model...")
-            
-            # Generate sample training data for demonstration
-            sample_data = self._generate_sample_training_data()
-            
-            # Train the model
-            performance = self.ai_engine.train_model([sample_data])
-            
-            self.logger.info(f"Initial model trained with accuracy: {performance['test_accuracy']:.3f}")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to train initial model: {e}")
-    
-    def _generate_sample_training_data(self, n_bars: int = 2000) -> Dict:
-        """Generate sample OHLC data for initial training"""
-        np.random.seed(42)
-        
-        # Generate realistic forex price data
-        base_price = 1.1000
-        prices = [base_price]
-        
-        # Add trend and noise
-        for i in range(n_bars):
-            # Add trend component
-            trend = 0.0001 * np.sin(i / 100)
-            # Add random walk
-            noise = np.random.normal(0, 0.0005)
-            # Add mean reversion
-            mean_reversion = -0.1 * (prices[-1] - base_price)
-            
-            price_change = trend + noise + mean_reversion
-            new_price = prices[-1] * (1 + price_change)
-            prices.append(new_price)
-        
-        # Generate OHLC from prices
-        ohlc_data = {
-            'open': [],
-            'high': [],
-            'low': [],
-            'close': prices[1:]  # Remove first price
-        }
-        
-        for i in range(len(ohlc_data['close'])):
-            close = ohlc_data['close'][i]
-            open_price = prices[i] if i < len(prices) else close
-            
-            # Generate high/low with some spread
-            spread = abs(np.random.normal(0, 0.0003))
-            high = max(open_price, close) + spread
-            low = min(open_price, close) - spread
-            
-            ohlc_data['open'].append(open_price)
-            ohlc_data['high'].append(high)
-            ohlc_data['low'].append(low)
-        
-        return ohlc_data
-    
-    def signal_handler(self, signum, frame):
-        """Handle shutdown signals gracefully"""
-        self.logger.info(f"Received signal {signum}, shutting down...")
-        self.stop_server()
-        sys.exit(0)
     
     def start_server(self):
-        """Start the socket server"""
+        """Start the enhanced socket server"""
         try:
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.server_socket.bind((self.host, self.port))
-            self.server_socket.listen(5)
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.socket.bind((self.host, self.port))
+            self.socket.listen(5)
             
-            self.is_running = True
-            self.logger.info(f"AI Socket Server started on {self.host}:{self.port}")
+            self.running = True
+            self.stats['uptime_start'] = datetime.now()
             
-            if self.ai_engine is None:
-                self.logger.warning("AI engine not available - server running in fallback mode")
+            self.logger.info(f"STARTED: Enhanced ForexAI Socket Server v2.0 on {self.host}:{self.port}")
+            self.logger.info("FEATURES: Volume Profile, VWAP, Ensemble Models")
             
-            # Accept connections loop
-            while self.is_running:
+            # Try to load existing model
+            self.load_ai_model()
+            
+            while self.running:
                 try:
-                    client_socket, client_address = self.server_socket.accept()
-                    self.logger.info(f"New connection from {client_address}")
+                    client_socket, address = self.socket.accept()
+                    self.stats['connections'] += 1
                     
-                    # Handle client in separate thread
+                    self.logger.info(f"CONNECTION: New client from {address}")
+                    
                     client_thread = threading.Thread(
                         target=self.handle_client,
-                        args=(client_socket, client_address),
-                        daemon=True
+                        args=(client_socket, address)
                     )
+                    client_thread.daemon = True
                     client_thread.start()
                     
                 except socket.error as e:
-                    if self.is_running:
+                    if self.running:
                         self.logger.error(f"Socket error: {e}")
                     break
                     
         except Exception as e:
-            self.logger.error(f"Failed to start server: {e}")
-        finally:
-            self.stop_server()
+            self.logger.error(f"Server startup failed: {e}")
+            raise
     
-    def handle_client(self, client_socket: socket.socket, client_address: tuple):
-        """Handle individual client connection"""
-        self.client_connections.append(client_socket)
-        
+    def load_ai_model(self):
+        """Load existing AI model if available"""
         try:
-            while self.is_running:
-                # Set timeout for socket operations
-                client_socket.settimeout(30.0)
-                
-                # Receive data from client
-                data = client_socket.recv(4096)
-                if not data:
-                    break
-                
-                # Process request
-                response = self.process_request(data.decode('utf-8'))
-                
-                # Send response back to client
-                client_socket.send(response.encode('utf-8'))
-                
-        except socket.timeout:
-            self.logger.warning(f"Client {client_address} timed out")
-        except socket.error as e:
-            self.logger.error(f"Client {client_address} error: {e}")
-        except Exception as e:
-            self.logger.error(f"Unexpected error with client {client_address}: {e}")
-        finally:
-            try:
-                client_socket.close()
-                if client_socket in self.client_connections:
-                    self.client_connections.remove(client_socket)
-                self.logger.info(f"Client {client_address} disconnected")
-            except:
-                pass
-    
-    def process_request(self, request_data: str) -> str:
-        """
-        Process incoming request from MQL5 EA
-        Expected format: JSON string with request type and data
-        """
-        try:
-            # Parse JSON request
-            request = json.loads(request_data)
-            request_type = request.get('type', 'unknown')
-            
-            self.logger.info(f"Processing request: {request_type}")
-            
-            # Route request to appropriate handler
-            if request_type == 'ping':
-                response = self.handle_ping(request)
-            elif request_type == 'prediction':
-                response = self.handle_prediction_request(request)
-            elif request_type == 'health_check':
-                response = self.handle_health_check(request)
-            elif request_type == 'model_info':
-                response = self.handle_model_info_request(request)
-            elif request_type == 'performance':
-                response = self.handle_performance_request(request)
+            model_path = "data/models/enhanced_ai_model.pkl"
+            if os.path.exists(model_path):
+                success = self.ai_engine.load_enhanced_model(model_path)
+                if success:
+                    self.model_loaded = True
+                    self.logger.info("SUCCESS: Enhanced AI model loaded")
+                else:
+                    self.logger.warning("FAILED: Could not load enhanced AI model")
             else:
-                response = {
-                    'status': 'error',
-                    'message': f'Unknown request type: {request_type}',
-                    'timestamp': datetime.now().isoformat()
-                }
-            
-            return json.dumps(response)
-            
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Invalid JSON received: {e}")
-            return json.dumps({
-                'status': 'error',
-                'message': 'Invalid JSON format',
-                'timestamp': datetime.now().isoformat()
-            })
+                self.logger.info("INFO: No existing enhanced model found - will need training")
+                
         except Exception as e:
-            self.logger.error(f"Error processing request: {e}")
-            return json.dumps({
-                'status': 'error',
-                'message': str(e),
-                'timestamp': datetime.now().isoformat()
-            })
+            self.logger.error(f"Model loading error: {e}")
     
-    def handle_ping(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle ping request for connection testing"""
-        return {
-            'status': 'success',
-            'message': 'pong',
-            'server_time': datetime.now().isoformat(),
-            'ai_engine_status': 'available' if self.ai_engine else 'unavailable',
-            'timestamp': datetime.now().isoformat()
-        }
-    
-    def handle_prediction_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle AI prediction request with real AI engine
-        """
+    def handle_client(self, client_socket, address):
+        """Handle client connection with enhanced features"""
         try:
-            start_time = time.time()
+            self.clients.append(client_socket)
             
-            # Extract request data
-            symbol = request.get('symbol', 'UNKNOWN')
-            timeframe = request.get('timeframe', 'M15')
-            prices = request.get('prices', [])
-            
-            # Validate input
-            if not prices or len(prices) < 50:
-                return {
-                    'status': 'error',
-                    'message': f'Insufficient price data for prediction (need 50+, got {len(prices)})',
-                    'timestamp': datetime.now().isoformat()
-                }
-            
-            # Prepare OHLC data (assuming prices are close prices)
-            ohlc_data = self._prepare_ohlc_data(prices)
-            
-            # Use real AI engine if available
-            if self.ai_engine is not None:
+            while self.running:
                 try:
-                    signal, confidence, metadata = self.ai_engine.predict(ohlc_data)
+                    # Receive data
+                    data = client_socket.recv(4096)
+                    if not data:
+                        break
                     
-                    # Clean all data for JSON serialization (ADD THIS)
-                    signal = clean_for_json(signal)
-                    confidence = clean_for_json(confidence)
-                    metadata = clean_for_json(metadata)
+                    # Parse request
+                    request = json.loads(data.decode('utf-8'))
+                    self.stats['total_requests'] += 1
                     
-                    # Track performance
-                    prediction_time = time.time() - start_time
-                    self.prediction_times.append(prediction_time)
-                    self.prediction_count += 1
+                    # Process request
+                    response = self.process_enhanced_request(request)
                     
-                    # Store last prediction for monitoring
-                    self.last_predictions.append({
-                        'symbol': symbol,
-                        'signal': signal,
-                        'confidence': confidence,
-                        'timestamp': datetime.now().isoformat()
-                    })
+                    # Send response
+                    response_json = json.dumps(response)
+                    client_socket.send(response_json.encode('utf-8'))
                     
-                    # Keep only last 100 predictions
-                    if len(self.last_predictions) > 100:
-                        self.last_predictions = self.last_predictions[-100:]
-                    
-                    response = {
-                        'status': 'success',
-                        'prediction': signal,
-                        'confidence': confidence,
-                        'symbol': symbol,
-                        'timeframe': timeframe,
-                        'prediction_time_ms': prediction_time * 1000,
-                        'metadata': metadata,
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    
-                    self.logger.info(f"AI Prediction: {signal} (Confidence: {confidence:.3f}) for {symbol}")
+                except json.JSONDecodeError as e:
+                    self.logger.error(f"JSON decode error: {e}")
+                    error_response = {"error": "Invalid JSON format"}
+                    client_socket.send(json.dumps(error_response).encode('utf-8'))
                     
                 except Exception as e:
-                    self.logger.error(f"AI prediction failed: {e}")
-                    # Fallback to safe prediction
-                    response = {
-                        'status': 'success',
-                        'prediction': 0,  # Hold signal as fallback
-                        'confidence': 0.5,
-                        'symbol': symbol,
-                        'timeframe': timeframe,
-                        'error': str(e),
-                        'fallback_mode': True,
-                        'timestamp': datetime.now().isoformat()
-                    }
+                    self.logger.error(f"Client handling error: {e}")
+                    self.stats['errors'] += 1
+                    break
+                    
+        except Exception as e:
+            self.logger.error(f"Client connection error: {e}")
+        finally:
+            if client_socket in self.clients:
+                self.clients.remove(client_socket)
+            client_socket.close()
+            self.logger.info(f"DISCONNECTED: Client {address}")
+    
+    def process_enhanced_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Process enhanced requests with Volume Profile capabilities"""
+        try:
+            action = request.get('action', '')
+            
+            if action == 'predict':
+                return self.handle_enhanced_prediction(request)
+            elif action == 'train':
+                return self.handle_model_training(request)
+            elif action == 'status':
+                return self.get_enhanced_status()
+            elif action == 'capabilities':
+                return self.get_capabilities()
+            elif action == 'volume_profile':
+                return self.handle_volume_profile_request(request)
+            elif action == 'vwap_analysis':
+                return self.handle_vwap_request(request)
+            elif action == 'performance':
+                return self.get_performance_stats()
             else:
-                # Fallback mode without AI engine
-                response = {
-                    'status': 'success',
-                    'prediction': 0,  # Conservative hold signal
-                    'confidence': 0.5,
-                    'symbol': symbol,
-                    'timeframe': timeframe,
-                    'fallback_mode': True,
-                    'message': 'AI engine unavailable - using fallback',
-                    'timestamp': datetime.now().isoformat()
+                return {"error": f"Unknown action: {action}"}
+                
+        except Exception as e:
+            self.logger.error(f"Request processing error: {e}")
+            return {"error": str(e)}
+    
+    def handle_enhanced_prediction(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle enhanced prediction requests"""
+        try:
+            symbol = request.get('symbol', 'EURUSD')
+            timeframe = request.get('timeframe', 'M15')
+            
+            # Get price data
+            price_data = request.get('price_data', [])
+            if not price_data:
+                return {"error": "No price data provided"}
+            
+            # Convert to DataFrame
+            df = pd.DataFrame(price_data)
+            required_columns = ['open', 'high', 'low', 'close', 'volume']
+            
+            if not all(col in df.columns for col in required_columns):
+                return {"error": f"Missing required columns: {required_columns}"}
+            
+            # Store data for analysis
+            self.price_data[symbol] = df.tail(self.max_bars_stored)
+            
+            if not self.model_loaded:
+                return {
+                    "signal": 0,
+                    "confidence": 0.0,
+                    "message": "Model not trained yet",
+                    "enhanced_features": False
                 }
+            
+            # Get enhanced prediction
+            signal, confidence, details = self.ai_engine.predict_enhanced(df)
+            
+            self.stats['predictions'] += 1
+            if details.get('volume_profile_active', False):
+                self.stats['volume_profile_predictions'] += 1
+            if details.get('vwap_active', False):
+                self.stats['vwap_predictions'] += 1
+            
+            # Enhanced response
+            response = {
+                "signal": int(signal),
+                "confidence": float(confidence),
+                "timestamp": datetime.now().isoformat(),
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "enhanced_features": {
+                    "volume_profile_active": details.get('volume_profile_active', False),
+                    "vwap_active": details.get('vwap_active', False),
+                    "feature_count": details.get('feature_count', 0),
+                    "individual_models": details.get('individual_models', {}),
+                    "raw_signal": details.get('raw_signal', signal),
+                    "filtered": details.get('raw_signal') != signal
+                },
+                "server_version": "2.0.1"
+            }
+            
+            self.logger.info(f"PREDICTION: {symbol} -> Signal: {signal}, Confidence: {confidence:.3f}")
             
             return response
             
         except Exception as e:
-            self.logger.error(f"Prediction request error: {e}")
-            return {
-                'status': 'error',
-                'message': f'Prediction error: {str(e)}',
-                'timestamp': datetime.now().isoformat()
-            }
+            self.logger.error(f"Enhanced prediction error: {e}")
+            return {"error": str(e)}
     
-    def _prepare_ohlc_data(self, prices: List[float]) -> Dict[str, List[float]]:
-        """
-        Prepare OHLC data from price list
-        For real implementation, this should receive actual OHLC data
-        """
-        # For now, simulate OHLC from close prices
-        # In production, the EA should send actual OHLC data
-        
-        ohlc_data = {
-            'open': [],
-            'high': [],
-            'low': [],
-            'close': prices
-        }
-        
-        for i, close in enumerate(prices):
-            if i == 0:
-                open_price = close
+    def handle_model_training(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle model training requests"""
+        try:
+            symbol = request.get('symbol', 'EURUSD')
+            
+            # Get training data
+            if symbol in self.price_data and len(self.price_data[symbol]) > 200:
+                training_data = self.price_data[symbol]
             else:
-                open_price = prices[i-1]
+                price_data = request.get('training_data', [])
+                if not price_data:
+                    return {"error": "No training data available"}
+                training_data = pd.DataFrame(price_data)
             
-            # Simulate high/low based on close prices
-            # Add small random variation to simulate realistic OHLC
-            price_range = abs(close - open_price) * 0.3
-            high = max(open_price, close) + price_range * 0.5
-            low = min(open_price, close) - price_range * 0.5
+            self.logger.info(f"TRAINING: Starting enhanced model training for {symbol}")
             
-            ohlc_data['open'].append(open_price)
-            ohlc_data['high'].append(high)
-            ohlc_data['low'].append(low)
-        
-        return ohlc_data
-    
-    def handle_health_check(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle comprehensive health check request"""
-        # Calculate average prediction time
-        avg_prediction_time = 0
-        if self.prediction_times:
-            recent_times = self.prediction_times[-50:]  # Last 50 predictions
-            avg_prediction_time = np.mean(recent_times) * 1000  # Convert to ms
-        
-        # Get AI engine status
-        ai_status = 'unavailable'
-        model_info = {}
-        if self.ai_engine:
-            ai_status = 'available'
-            model_info = self.ai_engine.get_model_info()
-        
-        return {
-            'status': 'success',
-            'server_status': 'healthy',
-            'ai_engine_status': ai_status,
-            'uptime_seconds': time.time(),
-            'active_connections': len(self.client_connections),
-            'total_predictions': self.prediction_count,
-            'avg_prediction_time_ms': avg_prediction_time,
-            'model_info': model_info,
-            'timestamp': datetime.now().isoformat()
-        }
-    
-    def handle_model_info_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle model information request"""
-        if self.ai_engine is None:
-            return {
-                'status': 'error',
-                'message': 'AI engine not available',
-                'timestamp': datetime.now().isoformat()
+            # Train enhanced model
+            results = self.ai_engine.train_enhanced_model(training_data)
+            
+            # Save model
+            model_path = "data/models/enhanced_ai_model.pkl"
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            save_success = self.ai_engine.save_enhanced_model(model_path)
+            
+            if save_success:
+                self.model_loaded = True
+                
+            response = {
+                "success": True,
+                "model_saved": save_success,
+                "training_results": results,
+                "timestamp": datetime.now().isoformat()
             }
+            
+            self.logger.info(f"TRAINING: Complete - Accuracy: {results.get('ensemble_accuracy', 0):.4f}")
+            
+            return response
+            
+        except Exception as e:
+            self.logger.error(f"Model training error: {e}")
+            return {"error": str(e)}
+    
+    def handle_volume_profile_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle Volume Profile analysis requests"""
+        try:
+            symbol = request.get('symbol', 'EURUSD')
+            
+            if symbol not in self.price_data:
+                return {"error": f"No data available for {symbol}"}
+            
+            df = self.price_data[symbol]
+            
+            # Calculate Volume Profile
+            try:
+                vp_engine = VolumeProfileEngine()
+                lookback = request.get('lookback_bars', 100)
+                
+                vp_data = df.tail(lookback)
+                volume_profile = vp_engine.calculate_volume_profile(vp_data)
+                
+                current_price = df['close'].iloc[-1]
+                vp_features = vp_engine.get_volume_profile_features(current_price, volume_profile)
+                key_levels = vp_engine.identify_key_levels(volume_profile)
+                
+                response = {
+                    "symbol": symbol,
+                    "volume_profile": {
+                        "poc_price": float(volume_profile.poc_price),
+                        "poc_volume": float(volume_profile.poc_volume),
+                        "value_area_high": float(volume_profile.value_area_high),
+                        "value_area_low": float(volume_profile.value_area_low),
+                        "total_volume": float(volume_profile.total_volume),
+                        "key_levels": [float(level) for level in key_levels],
+                        "features": {k: float(v) for k, v in vp_features.items()}
+                    },
+                    "current_price": float(current_price),
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                return response
+            except:
+                return {"error": "Volume Profile calculation not available - using basic analysis"}
+            
+        except Exception as e:
+            self.logger.error(f"Volume Profile request error: {e}")
+            return {"error": str(e)}
+    
+    def handle_vwap_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle VWAP analysis requests"""
+        try:
+            symbol = request.get('symbol', 'EURUSD')
+            
+            if symbol not in self.price_data:
+                return {"error": f"No data available for {symbol}"}
+            
+            df = self.price_data[symbol]
+            
+            try:
+                # Calculate VWAP
+                vwap_calc = VWAPCalculator()
+                session_vwap = vwap_calc.calculate_vwap(df)
+                vwap_20 = vwap_calc.calculate_vwap(df, period=20)
+                vwap_50 = vwap_calc.calculate_vwap(df, period=50)
+                vwap_bands = vwap_calc.calculate_vwap_bands(df, session_vwap)
+                
+                current_price = df['close'].iloc[-1]
+                vwap_features = vwap_calc.get_vwap_features(
+                    current_price, session_vwap.iloc[-1], vwap_bands, -1
+                )
+                
+                response = {
+                    "symbol": symbol,
+                    "vwap_analysis": {
+                        "session_vwap": float(session_vwap.iloc[-1]),
+                        "vwap_20": float(vwap_20.iloc[-1]) if len(vwap_20) > 0 else None,
+                        "vwap_50": float(vwap_50.iloc[-1]) if len(vwap_50) > 0 else None,
+                        "vwap_upper_band": float(vwap_bands['vwap_upper'].iloc[-1]),
+                        "vwap_lower_band": float(vwap_bands['vwap_lower'].iloc[-1]),
+                        "features": {k: float(v) for k, v in vwap_features.items()}
+                    },
+                    "current_price": float(current_price),
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                return response
+            except:
+                return {"error": "VWAP calculation not available - using basic analysis"}
+            
+        except Exception as e:
+            self.logger.error(f"VWAP request error: {e}")
+            return {"error": str(e)}
+    
+    def get_enhanced_status(self) -> Dict[str, Any]:
+        """Get enhanced server status"""
+        uptime = datetime.now() - self.stats['uptime_start']
         
-        model_info = self.ai_engine.get_model_info()
+        status = {
+            "server_version": "2.0.1",
+            "status": "running" if self.running else "stopped",
+            "uptime_seconds": int(uptime.total_seconds()),
+            "uptime_formatted": str(uptime).split('.')[0],
+            "connections": len(self.clients),
+            "model_loaded": self.model_loaded,
+            "enhanced_capabilities": self.capabilities,
+            "statistics": {
+                "total_connections": self.stats['connections'],
+                "total_predictions": self.stats['predictions'],
+                "volume_profile_predictions": self.stats['volume_profile_predictions'],
+                "vwap_predictions": self.stats['vwap_predictions'],
+                "total_requests": self.stats['total_requests'],
+                "errors": self.stats['errors'],
+                "success_rate": 1 - (self.stats['errors'] / max(self.stats['total_requests'], 1))
+            },
+            "data_stored": {symbol: len(data) for symbol, data in self.price_data.items()},
+            "timestamp": datetime.now().isoformat()
+        }
         
-        # Add feature importance if available
-        feature_importance = self.ai_engine.get_feature_importance(15)
-        
+        return status
+    
+    def get_capabilities(self) -> Dict[str, Any]:
+        """Get server capabilities"""
         return {
-            'status': 'success',
-            'model_info': model_info,
-            'feature_importance': feature_importance,
-            'timestamp': datetime.now().isoformat()
+            "server_version": "2.0.1",
+            "capabilities": self.capabilities,
+            "supported_actions": [
+                "predict", "train", "status", "capabilities", 
+                "volume_profile", "vwap_analysis", "performance"
+            ],
+            "enhanced_features": {
+                "volume_profile": "Point of Control, Value Area, Key Levels",
+                "vwap_analysis": "Multi-timeframe VWAP with bands",
+                "ensemble_models": "RandomForest + XGBoost + LogisticRegression",
+                "enhanced_filtering": "VP + VWAP + Market Structure",
+                "market_structure": "Higher highs/lows, Support/Resistance"
+            },
+            "ai_engine": {
+                "feature_count": "65+",
+                "model_type": "Ensemble Voting Classifier",
+                "confidence_threshold": getattr(self.ai_engine, 'confidence_threshold', 0.65)
+            }
         }
     
-    def handle_performance_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle performance statistics request"""
-        # Calculate confidence statistics
-        confidence_stats = {}
-        if self.last_predictions:
-            confidences = [p['confidence'] for p in self.last_predictions]
-            confidence_stats = {
-                'mean': np.mean(confidences),
-                'std': np.std(confidences),
-                'min': np.min(confidences),
-                'max': np.max(confidences)
-            }
-        
-        # Signal distribution
-        signal_distribution = {-1: 0, 0: 0, 1: 0}
-        if self.last_predictions:
-            for pred in self.last_predictions:
-                signal_distribution[pred['signal']] += 1
-        
-        return {
-            'status': 'success',
-            'prediction_count': self.prediction_count,
-            'confidence_stats': confidence_stats,
-            'signal_distribution': signal_distribution,
-            'recent_predictions': self.last_predictions[-10:],  # Last 10 predictions
-            'timestamp': datetime.now().isoformat()
-        }
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """Get AI engine performance statistics"""
+        try:
+            if self.model_loaded and hasattr(self.ai_engine, 'get_model_performance_stats'):
+                return self.ai_engine.get_model_performance_stats()
+            else:
+                return {"message": "No model loaded or performance stats not available"}
+                
+        except Exception as e:
+            return {"error": str(e)}
     
     def stop_server(self):
-        """Stop the server gracefully"""
-        self.is_running = False
+        """Stop the enhanced server"""
+        self.logger.info("STOPPING: Enhanced ForexAI Socket Server...")
+        self.running = False
         
         # Close all client connections
-        for client_socket in self.client_connections[:]:
-            try:
-                client_socket.close()
-            except:
-                pass
-        self.client_connections.clear()
+        for client in self.clients[:]:
+            client.close()
         
         # Close server socket
-        if self.server_socket:
-            try:
-                self.server_socket.close()
-            except:
-                pass
+        if self.socket:
+            self.socket.close()
         
-        self.logger.info("AI Socket Server stopped")
+        self.logger.info("STOPPED: Enhanced server stopped")
+
+
+def signal_handler(sig, frame):
+    """Handle shutdown signals"""
+    print("\nReceived shutdown signal...")
+    if 'server' in globals():
+        server.stop_server()
+    sys.exit(0)
 
 
 def main():
-    """Main function to start the server"""
-    print("=" * 60)
-    print("ForexAI-EA Socket Server v2.0.0 (Real AI Engine)")
-    print("=" * 60)
+    """Main function with command line interface"""
+    parser = argparse.ArgumentParser(description="Enhanced ForexAI Socket Server v2.0")
+    parser.add_argument('command', choices=['start', 'status', 'stop'], 
+                       help='Server command')
+    parser.add_argument('--host', default='localhost', 
+                       help='Server host (default: localhost)')
+    parser.add_argument('--port', type=int, default=8888, 
+                       help='Server port (default: 8888)')
     
-    # Create and start server
-    server = AISocketServer(host="localhost", port=8888)
+    args = parser.parse_args()
     
-    try:
-        server.start_server()
-    except KeyboardInterrupt:
-        print("\nShutdown requested by user")
-    except Exception as e:
-        print(f"Server error: {e}")
-    finally:
-        server.stop_server()
-        print("Server shutdown complete")
+    if args.command == 'start':
+        # Setup signal handlers
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        
+        # Create and start server
+        global server
+        server = EnhancedSocketServer(args.host, args.port)
+        
+        try:
+            server.start_server()
+        except KeyboardInterrupt:
+            print("\nReceived keyboard interrupt...")
+        finally:
+            server.stop_server()
+    
+    elif args.command == 'status':
+        # Quick status check
+        try:
+            import socket as sock
+            client = sock.socket(sock.AF_INET, sock.SOCK_STREAM)
+            client.settimeout(5)
+            client.connect((args.host, args.port))
+            
+            request = {"action": "status"}
+            client.send(json.dumps(request).encode('utf-8'))
+            
+            response = client.recv(4096)
+            status = json.loads(response.decode('utf-8'))
+            
+            print("Enhanced ForexAI Server Status:")
+            print(f"   Status: {status.get('status', 'unknown')}")
+            print(f"   Version: {status.get('server_version', 'unknown')}")
+            print(f"   Uptime: {status.get('uptime_formatted', 'unknown')}")
+            print(f"   Connections: {status.get('connections', 0)}")
+            print(f"   Model Loaded: {status.get('model_loaded', False)}")
+            print(f"   Total Predictions: {status.get('statistics', {}).get('total_predictions', 0)}")
+            print(f"   Volume Profile Predictions: {status.get('statistics', {}).get('volume_profile_predictions', 0)}")
+            
+            client.close()
+            
+        except Exception as e:
+            print(f"Cannot connect to server: {e}")
+    
+    elif args.command == 'stop':
+        print("Stop command - use Ctrl+C to stop running server")
 
 
 if __name__ == "__main__":

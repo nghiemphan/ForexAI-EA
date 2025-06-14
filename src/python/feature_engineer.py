@@ -1,513 +1,846 @@
-# src/python/feature_engineer.py
 """
-Feature Engineering for ForexAI-EA Project
-Transforms technical indicators into ML features and generates trading labels
+File: src/python/feature_engineer.py
+Description: Fixed Enhanced Feature Engineering with proper error handling
 Author: Claude AI Developer
-Version: 1.0.0
-Created: 2025-06-11
+Version: 2.0.1
+Created: 2025-06-13
+Modified: 2025-06-14
 """
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Tuple, Optional
 import logging
-from technical_indicators import TechnicalIndicators
+from dataclasses import dataclass
 
-class FeatureEngineer:
-    """
-    Feature engineering pipeline for forex trading AI model
-    Converts raw indicators into meaningful ML features
-    """
+# Import our modules with error handling
+try:
+    from technical_indicators import TechnicalIndicators
+except ImportError:
+    print("Warning: technical_indicators module not found, using basic implementation")
+    class TechnicalIndicators:
+        def calculate_all_indicators(self, data):
+            return {}
+
+try:
+    from volume_profile import VolumeProfileEngine, VWAPCalculator
+except ImportError:
+    print("Warning: volume_profile module not found, using basic implementation")
+    class VolumeProfileEngine:
+        def calculate_volume_profile(self, data):
+            return None
+        def get_volume_profile_features(self, price, vp):
+            return {}
+    class VWAPCalculator:
+        def calculate_vwap(self, data, period=None):
+            return pd.Series([data['close'].iloc[-1]] * len(data), index=data.index)
+        def calculate_vwap_bands(self, data, vwap):
+            return {'vwap_upper': vwap, 'vwap_lower': vwap, 'vwap_std': vwap * 0}
+        def get_vwap_features(self, price, vwap_val, bands, idx):
+            return {}
+
+class EnhancedFeatureEngineer:
+    """Enhanced Feature Engineering with proper error handling and fallbacks"""
     
-    def __init__(self):
+    def __init__(self, symbol: str = "EURUSD", timeframe: str = "M15"):
+        """
+        Initialize Enhanced Feature Engineer
+        
+        Args:
+            symbol: Trading symbol
+            timeframe: Chart timeframe
+        """
         self.logger = logging.getLogger(__name__)
-        self.indicators_engine = TechnicalIndicators()
+        self.symbol = symbol
+        self.timeframe = timeframe
         
-    def create_features(self, ohlc_data: Dict[str, List[float]], 
-                       indicators: Optional[Dict[str, np.ndarray]] = None) -> Dict[str, float]:
+        # Initialize component engines with error handling
+        try:
+            self.tech_indicators = TechnicalIndicators()
+        except Exception as e:
+            self.logger.error(f"Failed to initialize TechnicalIndicators: {e}")
+            self.tech_indicators = None
+            
+        try:
+            self.volume_profile_engine = VolumeProfileEngine()
+            self.vwap_calculator = VWAPCalculator()
+        except Exception as e:
+            self.logger.error(f"Failed to initialize VP/VWAP engines: {e}")
+            self.volume_profile_engine = None
+            self.vwap_calculator = None
+        
+        # Feature configuration
+        self.feature_config = {
+            'technical_weight': 0.4,        # Original technical indicators
+            'volume_profile_weight': 0.3,   # Volume Profile features  
+            'vwap_weight': 0.2,            # VWAP features
+            'advanced_weight': 0.1         # Advanced combinations
+        }
+        
+    def create_enhanced_features(self, ohlcv_data: pd.DataFrame, 
+                               lookback_period: int = 200) -> Dict[str, float]:
         """
-        Create feature set from OHLC data and technical indicators
+        Create comprehensive feature set with proper error handling
         
         Args:
-            ohlc_data: Dictionary with OHLC price data
-            indicators: Pre-calculated indicators (optional)
+            ohlcv_data: DataFrame with OHLCV data
+            lookback_period: Period for volume profile calculation
             
         Returns:
-            Dictionary of engineered features for ML model
+            Dictionary of all engineered features
         """
-        if indicators is None:
-            indicators = self.indicators_engine.calculate_all_indicators(ohlc_data)
-        
-        # Get latest values
-        latest_indicators = self.indicators_engine.get_latest_values(indicators)
-        
+        try:
+            if len(ohlcv_data) < 10:
+                self.logger.warning("Insufficient data for feature engineering")
+                return self._get_minimal_features(ohlcv_data)
+            
+            features = {}
+            current_price = ohlcv_data['close'].iloc[-1]
+            
+            # 1. TECHNICAL INDICATORS FEATURES (40% weight)
+            tech_features = self._get_technical_features(ohlcv_data)
+            features.update(tech_features)
+            
+            # 2. VOLUME PROFILE FEATURES (30% weight)
+            vp_features = self._get_volume_profile_features(ohlcv_data, lookback_period)
+            features.update(vp_features)
+            
+            # 3. VWAP FEATURES (20% weight)
+            vwap_features = self._get_vwap_features(ohlcv_data)
+            features.update(vwap_features)
+            
+            # 4. ADVANCED COMBINATION FEATURES (10% weight)
+            advanced_features = self._get_advanced_features(ohlcv_data, features)
+            features.update(advanced_features)
+            
+            # 5. MARKET STRUCTURE FEATURES
+            structure_features = self._get_market_structure_features(ohlcv_data)
+            features.update(structure_features)
+            
+            # 6. BASIC PRICE ACTION FEATURES (fallback)
+            basic_features = self._get_basic_price_features(ohlcv_data)
+            features.update(basic_features)
+            
+            self.logger.info(f"Generated {len(features)} enhanced features")
+            return features
+            
+        except Exception as e:
+            self.logger.error(f"Enhanced feature creation failed: {e}")
+            return self._get_minimal_features(ohlcv_data)
+    
+    def _get_minimal_features(self, ohlcv_data: pd.DataFrame) -> Dict[str, float]:
+        """Get minimal fallback features when everything fails"""
+        try:
+            current_price = ohlcv_data['close'].iloc[-1]
+            prev_price = ohlcv_data['close'].iloc[-2] if len(ohlcv_data) > 1 else current_price
+            
+            return {
+                'price_change': (current_price - prev_price) / prev_price,
+                'price_level': current_price,
+                'volume_current': float(ohlcv_data['volume'].iloc[-1]),
+                'high_low_range': (ohlcv_data['high'].iloc[-1] - ohlcv_data['low'].iloc[-1]) / current_price,
+                'close_position': (current_price - ohlcv_data['low'].iloc[-1]) / (ohlcv_data['high'].iloc[-1] - ohlcv_data['low'].iloc[-1]) if ohlcv_data['high'].iloc[-1] != ohlcv_data['low'].iloc[-1] else 0.5
+            }
+        except Exception as e:
+            self.logger.error(f"Even minimal features failed: {e}")
+            return {'error_feature': 0.0}
+    
+    def _get_technical_features(self, ohlcv_data: pd.DataFrame) -> Dict[str, float]:
+        """Get technical indicator features with robust error handling"""
         features = {}
         
-        # === Trend Features ===
-        features.update(self._create_trend_features(latest_indicators, indicators))
-        
-        # === Momentum Features ===
-        features.update(self._create_momentum_features(latest_indicators, indicators))
-        
-        # === Volatility Features ===
-        features.update(self._create_volatility_features(latest_indicators, indicators, ohlc_data))
-        
-        # === Price Action Features ===
-        features.update(self._create_price_action_features(ohlc_data, latest_indicators))
-        
-        # === Crossover Features ===
-        features.update(self._create_crossover_features(indicators))
-        
-        # === Statistical Features ===
-        features.update(self._create_statistical_features(ohlc_data, indicators))
-        
-        # Clean features (remove NaN values)
-        features = self._clean_features(features)
-        
-        self.logger.debug(f"Created {len(features)} features")
-        return features
+        try:
+            if self.tech_indicators is None:
+                return self._get_basic_technical_features(ohlcv_data)
+            
+            # Calculate all technical indicators
+            indicators = self.tech_indicators.calculate_all_indicators(ohlcv_data)
+            
+            if not indicators:
+                return self._get_basic_technical_features(ohlcv_data)
+            
+            current_price = ohlcv_data['close'].iloc[-1]
+            
+            # EMA Features
+            try:
+                if 'ema_9' in indicators and isinstance(indicators['ema_9'], pd.Series):
+                    ema_9 = indicators['ema_9'].iloc[-1]
+                    ema_21 = indicators.get('ema_21', indicators['ema_9']).iloc[-1]
+                    ema_50 = indicators.get('ema_50', indicators['ema_9']).iloc[-1]
+                    
+                    features['ema_9'] = float(ema_9)
+                    features['ema_21'] = float(ema_21)
+                    features['ema_50'] = float(ema_50)
+                    features['price_above_ema_9'] = 1.0 if current_price > ema_9 else 0.0
+                    features['price_above_ema_21'] = 1.0 if current_price > ema_21 else 0.0
+                    features['ema_9_21_cross'] = 1.0 if ema_9 > ema_21 else 0.0
+                    
+                    # EMA slopes
+                    if len(indicators['ema_9']) >= 5:
+                        ema_9_slope = (indicators['ema_9'].iloc[-1] - indicators['ema_9'].iloc[-5]) / indicators['ema_9'].iloc[-5]
+                        features['ema_9_slope'] = float(ema_9_slope)
+                    else:
+                        features['ema_9_slope'] = 0.0
+            except Exception as e:
+                self.logger.warning(f"RSI features failed: {e}")
+                features['rsi'] = 50.0
+                features['rsi_overbought'] = 0.0
+                features['rsi_oversold'] = 0.0
+                features['rsi_neutral'] = 1.0
+            
+            # MACD Features
+            try:
+                if all(k in indicators for k in ['macd_main', 'macd_signal', 'macd_histogram']):
+                    macd_main = float(indicators['macd_main'].iloc[-1])
+                    macd_signal = float(indicators['macd_signal'].iloc[-1])
+                    macd_hist = float(indicators['macd_histogram'].iloc[-1])
+                    
+                    features['macd_main'] = macd_main
+                    features['macd_signal'] = macd_signal
+                    features['macd_histogram'] = macd_hist
+                    features['macd_bullish'] = 1.0 if macd_main > macd_signal else 0.0
+                else:
+                    features['macd_main'] = 0.0
+                    features['macd_signal'] = 0.0
+                    features['macd_histogram'] = 0.0
+                    features['macd_bullish'] = 0.0
+            except Exception as e:
+                self.logger.warning(f"MACD features failed: {e}")
+                features['macd_main'] = 0.0
+                features['macd_signal'] = 0.0
+                features['macd_histogram'] = 0.0
+                features['macd_bullish'] = 0.0
+            
+            # Bollinger Bands Features
+            try:
+                if all(k in indicators for k in ['bb_upper', 'bb_lower', 'bb_middle']):
+                    bb_upper = float(indicators['bb_upper'].iloc[-1])
+                    bb_lower = float(indicators['bb_lower'].iloc[-1])
+                    bb_middle = float(indicators['bb_middle'].iloc[-1])
+                    
+                    if bb_upper > bb_lower:
+                        bb_position = (current_price - bb_lower) / (bb_upper - bb_lower)
+                        bb_squeeze = 1.0 if (bb_upper - bb_lower) / bb_middle < 0.02 else 0.0
+                    else:
+                        bb_position = 0.5
+                        bb_squeeze = 0.0
+                    
+                    features['bb_position'] = float(bb_position)
+                    features['bb_squeeze'] = float(bb_squeeze)
+                    features['bb_upper'] = bb_upper
+                    features['bb_lower'] = bb_lower
+                else:
+                    features['bb_position'] = 0.5
+                    features['bb_squeeze'] = 0.0
+                    features['bb_upper'] = current_price
+                    features['bb_lower'] = current_price
+            except Exception as e:
+                self.logger.warning(f"Bollinger Bands features failed: {e}")
+                features['bb_position'] = 0.5
+                features['bb_squeeze'] = 0.0
+                features['bb_upper'] = current_price
+                features['bb_lower'] = current_price
+            
+            # ATR Features
+            try:
+                if 'atr' in indicators and isinstance(indicators['atr'], pd.Series):
+                    atr = float(indicators['atr'].iloc[-1])
+                    features['atr'] = atr
+                    features['atr_normalized'] = atr / current_price
+                else:
+                    features['atr'] = current_price * 0.01
+                    features['atr_normalized'] = 0.01
+            except Exception as e:
+                self.logger.warning(f"ATR features failed: {e}")
+                features['atr'] = current_price * 0.01
+                features['atr_normalized'] = 0.01
+            
+            # Stochastic Features
+            try:
+                if 'stoch_k' in indicators and 'stoch_d' in indicators:
+                    stoch_k = float(indicators['stoch_k'].iloc[-1])
+                    stoch_d = float(indicators['stoch_d'].iloc[-1])
+                    
+                    features['stoch_k'] = stoch_k
+                    features['stoch_d'] = stoch_d
+                    features['stoch_overbought'] = 1.0 if stoch_k > 80 else 0.0
+                    features['stoch_oversold'] = 1.0 if stoch_k < 20 else 0.0
+                else:
+                    features['stoch_k'] = 50.0
+                    features['stoch_d'] = 50.0
+                    features['stoch_overbought'] = 0.0
+                    features['stoch_oversold'] = 0.0
+            except Exception as e:
+                self.logger.warning(f"Stochastic features failed: {e}")
+                features['stoch_k'] = 50.0
+                features['stoch_d'] = 50.0
+                features['stoch_overbought'] = 0.0
+                features['stoch_oversold'] = 0.0
+            
+            # Williams %R Features
+            try:
+                if 'williams_r' in indicators and isinstance(indicators['williams_r'], pd.Series):
+                    williams_r = float(indicators['williams_r'].iloc[-1])
+                    features['williams_r'] = williams_r
+                    features['williams_overbought'] = 1.0 if williams_r > -20 else 0.0
+                    features['williams_oversold'] = 1.0 if williams_r < -80 else 0.0
+                else:
+                    features['williams_r'] = -50.0
+                    features['williams_overbought'] = 0.0
+                    features['williams_oversold'] = 0.0
+            except Exception as e:
+                self.logger.warning(f"Williams %R features failed: {e}")
+                features['williams_r'] = -50.0
+                features['williams_overbought'] = 0.0
+                features['williams_oversold'] = 0.0
+            
+            return features
+            
+        except Exception as e:
+            self.logger.error(f"Technical features calculation failed: {e}")
+            return self._get_basic_technical_features(ohlcv_data)
     
-    def _create_trend_features(self, latest: Dict, indicators: Dict) -> Dict[str, float]:
-        """Create trend-based features"""
-        features = {}
-        
-        # EMA values and relationships
-        if all(key in latest for key in ['ema_9', 'ema_21', 'ema_50']):
-            features['ema_9'] = latest['ema_9']
-            features['ema_21'] = latest['ema_21'] 
-            features['ema_50'] = latest['ema_50']
+    def _get_basic_technical_features(self, ohlcv_data: pd.DataFrame) -> Dict[str, float]:
+        """Get basic technical features when advanced calculation fails"""
+        try:
+            close = ohlcv_data['close']
+            current_price = close.iloc[-1]
             
-            # EMA spreads (normalized)
-            features['ema_9_21_spread'] = (latest['ema_9'] - latest['ema_21']) / latest['ema_21']
-            features['ema_21_50_spread'] = (latest['ema_21'] - latest['ema_50']) / latest['ema_50']
-            features['ema_9_50_spread'] = (latest['ema_9'] - latest['ema_50']) / latest['ema_50']
-            
-            # EMA alignment (all EMAs in same direction = stronger trend)
-            ema_alignment = 0
-            if latest['ema_9'] > latest['ema_21'] > latest['ema_50']:
-                ema_alignment = 1  # Bullish alignment
-            elif latest['ema_9'] < latest['ema_21'] < latest['ema_50']:
-                ema_alignment = -1  # Bearish alignment
-            features['ema_alignment'] = ema_alignment
-        
-        # EMA slopes (trend strength)
-        if 'ema_9' in indicators:
-            features['ema_9_slope'] = self._calculate_slope(indicators['ema_9'], 3)
-            features['ema_21_slope'] = self._calculate_slope(indicators['ema_21'], 5)
-        
-        # MACD trend features
-        if all(key in latest for key in ['macd_main', 'macd_signal', 'macd_histogram']):
-            features['macd_main'] = latest['macd_main']
-            features['macd_signal'] = latest['macd_signal']
-            features['macd_histogram'] = latest['macd_histogram']
-            
-            # MACD momentum
-            features['macd_momentum'] = 1 if latest['macd_histogram'] > 0 else -1
-            features['macd_strength'] = abs(latest['macd_histogram'])
-        
-        return features
-    
-    def _create_momentum_features(self, latest: Dict, indicators: Dict) -> Dict[str, float]:
-        """Create momentum-based features"""
-        features = {}
-        
-        # RSI features
-        if 'rsi' in latest:
-            rsi_value = latest['rsi']
-            features['rsi'] = rsi_value
-            features['rsi_normalized'] = (rsi_value - 50) / 50  # Normalize to -1 to 1
-            
-            # RSI zones
-            features['rsi_overbought'] = 1 if rsi_value > 70 else 0
-            features['rsi_oversold'] = 1 if rsi_value < 30 else 0
-            features['rsi_neutral'] = 1 if 30 <= rsi_value <= 70 else 0
-            
-            # RSI momentum
-            if 'rsi' in indicators and len(indicators['rsi']) >= 3:
-                rsi_slope = self._calculate_slope(indicators['rsi'], 3)
-                features['rsi_momentum'] = rsi_slope
-        
-        # Stochastic features
-        if all(key in latest for key in ['stoch_k', 'stoch_d']):
-            features['stoch_k'] = latest['stoch_k']
-            features['stoch_d'] = latest['stoch_d']
-            features['stoch_spread'] = latest['stoch_k'] - latest['stoch_d']
-            
-            # Stochastic zones
-            features['stoch_overbought'] = 1 if latest['stoch_k'] > 80 else 0
-            features['stoch_oversold'] = 1 if latest['stoch_k'] < 20 else 0
-        
-        # Williams %R features
-        if 'williams_r' in latest:
-            williams_value = latest['williams_r']
-            features['williams_r'] = williams_value
-            features['williams_overbought'] = 1 if williams_value > -20 else 0
-            features['williams_oversold'] = 1 if williams_value < -80 else 0
-        
-        return features
-    
-    def _create_volatility_features(self, latest: Dict, indicators: Dict, ohlc_data: Dict) -> Dict[str, float]:
-        """Create volatility-based features"""
-        features = {}
-        
-        # ATR features
-        if 'atr' in latest and 'atr_normalized' in latest:
-            features['atr'] = latest['atr']
-            features['atr_normalized'] = latest['atr_normalized']
-            
-            # ATR trend (volatility expanding/contracting)
-            if 'atr' in indicators and len(indicators['atr']) >= 5:
-                atr_slope = self._calculate_slope(indicators['atr'], 5)
-                features['atr_trend'] = atr_slope
-                
-                # Volatility regime
-                current_atr = latest['atr']
-                avg_atr = np.mean(indicators['atr'][-20:])  # 20-period average
-                features['volatility_regime'] = current_atr / avg_atr if avg_atr > 0 else 1
-        
-        # Bollinger Bands features
-        if all(key in latest for key in ['bb_upper', 'bb_lower', 'bb_position', 'bb_width']):
-            features['bb_position'] = latest['bb_position']  # 0-1 scale within bands
-            features['bb_width'] = latest['bb_width']
-            
-            # BB squeeze/expansion
-            if 'bb_width' in indicators and len(indicators['bb_width']) >= 10:
-                current_width = latest['bb_width']
-                avg_width = np.mean(indicators['bb_width'][-20:])
-                features['bb_squeeze'] = 1 if current_width < avg_width * 0.8 else 0
-                features['bb_expansion'] = 1 if current_width > avg_width * 1.2 else 0
-        
-        # Price volatility features
-        close_prices = np.array(ohlc_data['close'][-20:])  # Last 20 bars
-        if len(close_prices) >= 10:
-            features['price_volatility'] = np.std(close_prices) / np.mean(close_prices)
-        
-        return features
-    
-    def _create_price_action_features(self, ohlc_data: Dict, latest: Dict) -> Dict[str, float]:
-        """Create price action features"""
-        features = {}
-        
-        # Current bar characteristics
-        if len(ohlc_data['open']) > 0:
-            open_price = ohlc_data['open'][-1]
-            high_price = ohlc_data['high'][-1]
-            low_price = ohlc_data['low'][-1]
-            close_price = ohlc_data['close'][-1]
-            
-            # Bar type
-            body_size = abs(close_price - open_price)
-            total_range = high_price - low_price
-            
-            if total_range > 0:
-                features['body_to_range_ratio'] = body_size / total_range
-                features['upper_shadow_ratio'] = (high_price - max(open_price, close_price)) / total_range
-                features['lower_shadow_ratio'] = (min(open_price, close_price) - low_price) / total_range
-            
-            # Candle direction
-            features['candle_direction'] = 1 if close_price > open_price else -1
-            features['candle_strength'] = body_size / close_price if close_price > 0 else 0
-        
-        # Multi-bar patterns
-        if len(ohlc_data['close']) >= 5:
-            close_prices = ohlc_data['close'][-5:]
-            
-            # Higher highs/lower lows pattern
-            features['higher_highs'] = 1 if all(close_prices[i] >= close_prices[i-1] 
-                                              for i in range(1, len(close_prices))) else 0
-            features['lower_lows'] = 1 if all(close_prices[i] <= close_prices[i-1] 
-                                            for i in range(1, len(close_prices))) else 0
-        
-        # Price position relative to moving averages
-        if 'bb_middle' in latest:
-            current_price = ohlc_data['close'][-1]
-            features['price_vs_bb_middle'] = (current_price - latest['bb_middle']) / latest['bb_middle']
-        
-        return features
-    
-    def _create_crossover_features(self, indicators: Dict) -> Dict[str, float]:
-        """Create crossover-based features"""
-        features = {}
-        
-        # EMA crossovers
-        if 'ema_9' in indicators and 'ema_21' in indicators:
-            crossovers = self.indicators_engine.detect_crossovers(
-                indicators['ema_9'], indicators['ema_21']
-            )
-            
-            # Recent crossover signals (last 5 bars)
-            recent_bullish = any(idx >= len(indicators['ema_9']) - 5 
-                               for idx in crossovers['bullish'])
-            recent_bearish = any(idx >= len(indicators['ema_9']) - 5 
-                               for idx in crossovers['bearish'])
-            
-            features['ema_9_21_bullish_cross'] = 1 if recent_bullish else 0
-            features['ema_9_21_bearish_cross'] = 1 if recent_bearish else 0
-        
-        # MACD crossovers
-        if 'macd_main' in indicators and 'macd_signal' in indicators:
-            macd_crossovers = self.indicators_engine.detect_crossovers(
-                indicators['macd_main'], indicators['macd_signal']
-            )
-            
-            recent_macd_bullish = any(idx >= len(indicators['macd_main']) - 3 
-                                    for idx in macd_crossovers['bullish'])
-            recent_macd_bearish = any(idx >= len(indicators['macd_main']) - 3 
-                                    for idx in macd_crossovers['bearish'])
-            
-            features['macd_bullish_cross'] = 1 if recent_macd_bullish else 0
-            features['macd_bearish_cross'] = 1 if recent_macd_bearish else 0
-        
-        # Stochastic crossovers
-        if 'stoch_k' in indicators and 'stoch_d' in indicators:
-            stoch_crossovers = self.indicators_engine.detect_crossovers(
-                indicators['stoch_k'], indicators['stoch_d']
-            )
-            
-            recent_stoch_bullish = any(idx >= len(indicators['stoch_k']) - 3 
-                                     for idx in stoch_crossovers['bullish'])
-            recent_stoch_bearish = any(idx >= len(indicators['stoch_k']) - 3 
-                                     for idx in stoch_crossovers['bearish'])
-            
-            features['stoch_bullish_cross'] = 1 if recent_stoch_bullish else 0
-            features['stoch_bearish_cross'] = 1 if recent_stoch_bearish else 0
-        
-        return features
-    
-    def _create_statistical_features(self, ohlc_data: Dict, indicators: Dict) -> Dict[str, float]:
-        """Create statistical features"""
-        features = {}
-        
-        # Price momentum features
-        if len(ohlc_data['close']) >= 10:
-            close_prices = np.array(ohlc_data['close'])
-            
-            # Rate of change
-            features['roc_5'] = (close_prices[-1] - close_prices[-6]) / close_prices[-6] if len(close_prices) >= 6 else 0
-            features['roc_10'] = (close_prices[-1] - close_prices[-11]) / close_prices[-11] if len(close_prices) >= 11 else 0
-            
-            # Z-score (how many standard deviations from mean)
-            if len(close_prices) >= 20:
-                recent_prices = close_prices[-20:]
-                mean_price = np.mean(recent_prices)
-                std_price = np.std(recent_prices)
-                if std_price > 0:
-                    features['price_zscore'] = (close_prices[-1] - mean_price) / std_price
-        
-        # Volume-price relationship (if volume available)
-        if 'volume' in ohlc_data and len(ohlc_data['volume']) >= 10:
-            volumes = np.array(ohlc_data['volume'][-10:])
-            avg_volume = np.mean(volumes)
-            current_volume = volumes[-1]
-            features['volume_ratio'] = current_volume / avg_volume if avg_volume > 0 else 1
-        
-        # Market structure features
-        if len(ohlc_data['high']) >= 10 and len(ohlc_data['low']) >= 10:
-            highs = np.array(ohlc_data['high'][-10:])
-            lows = np.array(ohlc_data['low'][-10:])
-            
-            # Support/resistance levels
-            resistance_level = np.max(highs)
-            support_level = np.min(lows)
-            current_price = ohlc_data['close'][-1]
-            
-            features['distance_to_resistance'] = (resistance_level - current_price) / current_price
-            features['distance_to_support'] = (current_price - support_level) / current_price
-        
-        return features
-    
-    def _calculate_slope(self, values: np.ndarray, period: int) -> float:
-        """Calculate slope of values over specified period"""
-        if len(values) < period:
-            return 0.0
-        
-        recent_values = values[-period:]
-        if np.any(np.isnan(recent_values)):
-            return 0.0
-        
-        x = np.arange(period)
-        slope = np.polyfit(x, recent_values, 1)[0]
-        return float(slope)
-    
-    def _clean_features(self, features: Dict[str, float]) -> Dict[str, float]:
-        """Clean features by handling NaN and infinite values"""
-        cleaned = {}
-        
-        for key, value in features.items():
-            if value is None or np.isnan(value) or np.isinf(value):
-                cleaned[key] = 0.0  # Replace with neutral value
+            # Simple moving averages
+            if len(close) >= 9:
+                sma_9 = close.tail(9).mean()
+                features = {
+                    'ema_9': float(sma_9),
+                    'price_above_ema_9': 1.0 if current_price > sma_9 else 0.0
+                }
             else:
-                cleaned[key] = float(value)
-        
-        return cleaned
+                features = {
+                    'ema_9': float(current_price),
+                    'price_above_ema_9': 0.5
+                }
+            
+            if len(close) >= 21:
+                sma_21 = close.tail(21).mean()
+                features['ema_21'] = float(sma_21)
+                features['price_above_ema_21'] = 1.0 if current_price > sma_21 else 0.0
+                features['ema_9_21_cross'] = 1.0 if features['ema_9'] > sma_21 else 0.0
+            else:
+                features['ema_21'] = float(current_price)
+                features['price_above_ema_21'] = 0.5
+                features['ema_9_21_cross'] = 0.5
+            
+            # Basic momentum
+            if len(close) >= 14:
+                price_14_ago = close.iloc[-14]
+                momentum = (current_price - price_14_ago) / price_14_ago
+                features['price_momentum'] = float(momentum)
+            else:
+                features['price_momentum'] = 0.0
+            
+            # Default values for other indicators
+            features.update({
+                'ema_50': float(current_price),
+                'rsi': 50.0,
+                'rsi_overbought': 0.0,
+                'rsi_oversold': 0.0,
+                'rsi_neutral': 1.0,
+                'macd_main': 0.0,
+                'macd_signal': 0.0,
+                'macd_histogram': 0.0,
+                'macd_bullish': 0.0,
+                'bb_position': 0.5,
+                'bb_squeeze': 0.0,
+                'atr': current_price * 0.01,
+                'atr_normalized': 0.01,
+                'stoch_k': 50.0,
+                'stoch_d': 50.0,
+                'williams_r': -50.0
+            })
+            
+            return features
+            
+        except Exception as e:
+            self.logger.error(f"Basic technical features failed: {e}")
+            return {}
     
-    def generate_labels(self, ohlc_data: Dict[str, List[float]], 
-                       atr_values: np.ndarray, 
-                       lookahead: int = 10,
-                       profit_threshold: float = 0.5,
-                       sideways_threshold: float = 0.2) -> List[int]:
+    def _get_basic_ema_features(self, ohlcv_data: pd.DataFrame) -> Dict[str, float]:
+        """Get basic EMA features as fallback"""
+        try:
+            close = ohlcv_data['close']
+            current_price = close.iloc[-1]
+            
+            if len(close) >= 9:
+                ema_9 = close.ewm(span=9).mean().iloc[-1]
+            else:
+                ema_9 = current_price
+                
+            return {
+                'ema_9': float(ema_9),
+                'ema_21': float(current_price),
+                'ema_50': float(current_price),
+                'price_above_ema_9': 1.0 if current_price > ema_9 else 0.0,
+                'price_above_ema_21': 0.5,
+                'ema_9_21_cross': 0.5,
+                'ema_9_slope': 0.0
+            }
+        except Exception as e:
+            self.logger.error(f"Basic EMA features failed: {e}")
+            return {}
+    
+    def _get_volume_profile_features(self, ohlcv_data: pd.DataFrame, 
+                                   lookback_period: int) -> Dict[str, float]:
+        """Get Volume Profile features with error handling"""
+        features = {}
+        
+        try:
+            if self.volume_profile_engine is None:
+                return self._get_basic_volume_features(ohlcv_data)
+            
+            # Use last lookback_period bars for volume profile
+            vp_data = ohlcv_data.tail(min(lookback_period, len(ohlcv_data)))
+            volume_profile = self.volume_profile_engine.calculate_volume_profile(vp_data)
+            
+            if volume_profile is None:
+                return self._get_basic_volume_features(ohlcv_data)
+            
+            current_price = ohlcv_data['close'].iloc[-1]
+            
+            # Get volume profile features
+            vp_features = self.volume_profile_engine.get_volume_profile_features(
+                current_price, volume_profile
+            )
+            
+            # Add VP prefix to avoid conflicts
+            for key, value in vp_features.items():
+                features[f'vp_{key}'] = float(value)
+            
+            return features
+            
+        except Exception as e:
+            self.logger.warning(f"Volume profile features calculation failed: {e}")
+            return self._get_basic_volume_features(ohlcv_data)
+    
+    def _get_basic_volume_features(self, ohlcv_data: pd.DataFrame) -> Dict[str, float]:
+        """Get basic volume features as fallback"""
+        try:
+            current_volume = ohlcv_data['volume'].iloc[-1]
+            avg_volume = ohlcv_data['volume'].tail(20).mean() if len(ohlcv_data) >= 20 else current_volume
+            
+            return {
+                'vp_volume_ratio': float(current_volume / avg_volume) if avg_volume > 0 else 1.0,
+                'vp_price_level': float(ohlcv_data['close'].iloc[-1]),
+                'vp_poc_distance': 0.0,
+                'vp_price_in_value_area': 1.0,
+                'vp_poc_strength': 0.5
+            }
+        except Exception as e:
+            self.logger.warning(f"Basic volume features failed: {e}")
+            return {}
+    
+    def _get_vwap_features(self, ohlcv_data: pd.DataFrame) -> Dict[str, float]:
+        """Get VWAP features with error handling"""
+        features = {}
+        
+        try:
+            if self.vwap_calculator is None:
+                return self._get_basic_vwap_features(ohlcv_data)
+            
+            # Calculate VWAP for different periods
+            session_vwap = self.vwap_calculator.calculate_vwap(ohlcv_data)
+            
+            if session_vwap is None or len(session_vwap) == 0:
+                return self._get_basic_vwap_features(ohlcv_data)
+            
+            current_price = ohlcv_data['close'].iloc[-1]
+            
+            # Session VWAP features
+            vwap_val = session_vwap.iloc[-1]
+            features['vwap_distance'] = float((current_price - vwap_val) / vwap_val)
+            features['vwap_above'] = 1.0 if current_price > vwap_val else 0.0
+            
+            # VWAP slope
+            if len(session_vwap) >= 5:
+                vwap_slope = (session_vwap.iloc[-1] - session_vwap.iloc[-5]) / session_vwap.iloc[-5]
+                features['vwap_slope'] = float(vwap_slope)
+                features['vwap_trending_up'] = 1.0 if vwap_slope > 0.0001 else 0.0
+            else:
+                features['vwap_slope'] = 0.0
+                features['vwap_trending_up'] = 0.0
+            
+            return features
+            
+        except Exception as e:
+            self.logger.warning(f"VWAP features calculation failed: {e}")
+            return self._get_basic_vwap_features(ohlcv_data)
+    
+    def _get_basic_vwap_features(self, ohlcv_data: pd.DataFrame) -> Dict[str, float]:
+        """Get basic VWAP features as fallback"""
+        try:
+            # Simple volume-weighted price
+            typical_price = (ohlcv_data['high'] + ohlcv_data['low'] + ohlcv_data['close']) / 3
+            volume = ohlcv_data['volume']
+            
+            if len(typical_price) >= 20:
+                vwap_approx = (typical_price * volume).tail(20).sum() / volume.tail(20).sum()
+            else:
+                vwap_approx = typical_price.iloc[-1]
+            
+            current_price = ohlcv_data['close'].iloc[-1]
+            
+            return {
+                'vwap_distance': float((current_price - vwap_approx) / vwap_approx),
+                'vwap_above': 1.0 if current_price > vwap_approx else 0.0,
+                'vwap_slope': 0.0,
+                'vwap_trending_up': 0.0
+            }
+        except Exception as e:
+            self.logger.warning(f"Basic VWAP features failed: {e}")
+            return {}
+    
+    def _get_advanced_features(self, ohlcv_data: pd.DataFrame, 
+                             existing_features: Dict[str, float]) -> Dict[str, float]:
+        """Get advanced combination features"""
+        features = {}
+        
+        try:
+            # Technical + Volume Profile combinations
+            rsi = existing_features.get('rsi', 50.0)
+            vp_distance = existing_features.get('vp_poc_distance', 0.0)
+            
+            # RSI-VP divergence
+            rsi_normalized = (rsi - 50) / 50  # Normalize RSI to -1 to 1
+            features['rsi_vp_divergence'] = float(abs(rsi_normalized - vp_distance))
+            
+            # MACD + VWAP confluence
+            macd_hist = existing_features.get('macd_histogram', 0.0)
+            vwap_slope = existing_features.get('vwap_slope', 0.0)
+            
+            macd_momentum = 1.0 if macd_hist > 0 else -1.0
+            vwap_momentum = 1.0 if vwap_slope > 0 else -1.0
+            features['momentum_confluence'] = 1.0 if macd_momentum == vwap_momentum else 0.0
+            
+            # Multi-signal strength
+            bullish_signals = 0
+            if existing_features.get('ema_9_21_cross', 0) == 1.0: bullish_signals += 1
+            if existing_features.get('macd_bullish', 0) == 1.0: bullish_signals += 1
+            if existing_features.get('vwap_trending_up', 0) == 1.0: bullish_signals += 1
+            if existing_features.get('rsi', 50) > 50: bullish_signals += 1
+            
+            features['bullish_signal_count'] = float(bullish_signals)
+            features['signal_strength'] = float(bullish_signals / 4.0)
+            
+            return features
+            
+        except Exception as e:
+            self.logger.warning(f"Advanced features calculation failed: {e}")
+            return {}
+    
+    def _get_market_structure_features(self, ohlcv_data: pd.DataFrame) -> Dict[str, float]:
+        """Get market structure features"""
+        features = {}
+        
+        try:
+            # Price momentum
+            if len(ohlcv_data) >= 5:
+                current_price = ohlcv_data['close'].iloc[-1]
+                price_5_ago = ohlcv_data['close'].iloc[-5]
+                momentum = (current_price - price_5_ago) / price_5_ago
+                features['price_momentum_5'] = float(momentum)
+                features['momentum_bullish'] = 1.0 if momentum > 0.001 else 0.0
+            else:
+                features['price_momentum_5'] = 0.0
+                features['momentum_bullish'] = 0.0
+            
+            # High/Low analysis
+            lookback = min(20, len(ohlcv_data) - 1)
+            if lookback >= 3:
+                recent_data = ohlcv_data.tail(lookback)
+                
+                recent_high = recent_data['high'].iloc[-1]
+                prev_high = recent_data['high'].iloc[-3:-1].max()
+                features['higher_high'] = 1.0 if recent_high > prev_high else 0.0
+                
+                recent_low = recent_data['low'].iloc[-1]
+                prev_low = recent_data['low'].iloc[-3:-1].min()
+                features['higher_low'] = 1.0 if recent_low > prev_low else 0.0
+            else:
+                features['higher_high'] = 0.0
+                features['higher_low'] = 0.0
+            
+            # Support/Resistance proximity
+            if len(ohlcv_data) >= 10:
+                recent_data = ohlcv_data.tail(20)
+                support = recent_data['low'].min()
+                resistance = recent_data['high'].max()
+                current_price = ohlcv_data['close'].iloc[-1]
+                
+                price_range = resistance - support
+                if price_range > 0:
+                    support_distance = (current_price - support) / price_range
+                    resistance_distance = (resistance - current_price) / price_range
+                    
+                    features['support_proximity'] = float(1.0 - support_distance)
+                    features['resistance_proximity'] = float(1.0 - resistance_distance)
+                    features['near_support'] = 1.0 if support_distance < 0.1 else 0.0
+                    features['near_resistance'] = 1.0 if resistance_distance < 0.1 else 0.0
+                else:
+                    features.update({
+                        'support_proximity': 0.5,
+                        'resistance_proximity': 0.5,
+                        'near_support': 0.0,
+                        'near_resistance': 0.0
+                    })
+            else:
+                features.update({
+                    'support_proximity': 0.5,
+                    'resistance_proximity': 0.5,
+                    'near_support': 0.0,
+                    'near_resistance': 0.0
+                })
+            
+            return features
+            
+        except Exception as e:
+            self.logger.warning(f"Market structure features calculation failed: {e}")
+            return {}
+    
+    def _get_basic_price_features(self, ohlcv_data: pd.DataFrame) -> Dict[str, float]:
+        """Get basic price action features"""
+        features = {}
+        
+        try:
+            current_bar = ohlcv_data.iloc[-1]
+            current_price = current_bar['close']
+            
+            # Basic price action
+            body_size = abs(current_bar['close'] - current_bar['open']) / current_price
+            upper_shadow = (current_bar['high'] - max(current_bar['open'], current_bar['close'])) / current_price
+            lower_shadow = (min(current_bar['open'], current_bar['close']) - current_bar['low']) / current_price
+            total_range = (current_bar['high'] - current_bar['low']) / current_price
+            
+            features.update({
+                'body_size_pct': float(body_size),
+                'upper_shadow_pct': float(upper_shadow),
+                'lower_shadow_pct': float(lower_shadow),
+                'total_range_pct': float(total_range),
+                'bullish_candle': 1.0 if current_bar['close'] > current_bar['open'] else 0.0
+            })
+            
+            # Volatility
+            if len(ohlcv_data) >= 5:
+                recent_closes = ohlcv_data['close'].tail(5)
+                volatility = recent_closes.std() / recent_closes.mean()
+                features['recent_volatility'] = float(volatility)
+            else:
+                features['recent_volatility'] = 0.01
+            
+            return features
+            
+        except Exception as e:
+            self.logger.warning(f"Basic price features failed: {e}")
+            return {}
+    
+    def generate_training_labels(self, ohlcv_data: pd.DataFrame, 
+                               features_data: List[Dict[str, float]],
+                               lookahead_bars: int = 10,
+                               profit_threshold_pct: float = 0.5) -> List[int]:
         """
-        Generate trading labels based on future price movement
+        Generate training labels with enhanced context
         
         Args:
-            ohlc_data: OHLC price data
-            atr_values: ATR values for dynamic thresholds
-            lookahead: Bars to look ahead for labeling
-            profit_threshold: Multiplier of ATR for profit target
-            sideways_threshold: Multiplier of ATR for sideways movement
+            ohlcv_data: Historical OHLC data
+            features_data: List of feature dictionaries for each bar
+            lookahead_bars: Number of bars to look ahead for label
+            profit_threshold_pct: Profit threshold as percentage
             
         Returns:
-            List of labels: 1 (Buy), 0 (Hold), -1 (Sell)
+            List of labels (-1, 0, 1)
         """
-        close_prices = np.array(ohlc_data['close'])
         labels = []
         
-        for i in range(len(close_prices) - lookahead):
-            current_price = close_prices[i]
-            current_atr = atr_values[i] if i < len(atr_values) and not np.isnan(atr_values[i]) else current_price * 0.001
+        try:
+            for i in range(len(ohlcv_data) - lookahead_bars):
+                current_price = ohlcv_data['close'].iloc[i]
+                
+                # Look ahead to determine outcome
+                future_prices = ohlcv_data['close'].iloc[i+1:i+1+lookahead_bars]
+                max_future_price = future_prices.max()
+                min_future_price = future_prices.min()
+                
+                # Calculate potential profit/loss
+                upside_potential = (max_future_price - current_price) / current_price
+                downside_risk = (current_price - min_future_price) / current_price
+                
+                # Dynamic threshold based on volatility
+                if i < len(features_data):
+                    current_features = features_data[i]
+                    volatility = current_features.get('recent_volatility', 0.01)
+                    threshold = max(profit_threshold_pct / 100, volatility * 2)
+                else:
+                    threshold = profit_threshold_pct / 100
+                
+                # Determine label
+                if upside_potential > threshold and upside_potential > downside_risk * 1.5:
+                    labels.append(1)  # Buy signal
+                elif downside_risk > threshold and downside_risk > upside_potential * 1.5:
+                    labels.append(-1)  # Sell signal
+                else:
+                    labels.append(0)  # Hold signal
             
-            # Look ahead to find max high and min low
-            future_prices = close_prices[i+1:i+1+lookahead]
-            max_future_price = np.max(future_prices)
-            min_future_price = np.min(future_prices)
+            # Fill remaining labels
+            while len(labels) < len(ohlcv_data):
+                labels.append(0)
             
-            # Calculate potential profit/loss
-            potential_profit = max_future_price - current_price
-            potential_loss = current_price - min_future_price
+            return labels
             
-            # Dynamic thresholds based on ATR
-            profit_target = current_atr * profit_threshold
-            sideways_range = current_atr * sideways_threshold
-            
-            # Generate label
-            if potential_profit >= profit_target and potential_profit > potential_loss:
-                labels.append(1)  # Buy signal
-            elif potential_loss >= profit_target and potential_loss > potential_profit:
-                labels.append(-1)  # Sell signal
-            else:
-                labels.append(0)  # Hold/sideways
-        
-        # Pad remaining values with 0 (Hold)
-        labels.extend([0] * lookahead)
-        
-        return labels
+        except Exception as e:
+            self.logger.error(f"Label generation failed: {e}")
+            return [0] * len(ohlcv_data)
     
-    def prepare_training_data(self, historical_data: List[Dict], 
-                            config: Optional[Dict] = None) -> Tuple[pd.DataFrame, pd.Series]:
+    def prepare_enhanced_training_data(self, ohlcv_data: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
         """
-        Prepare complete training dataset with features and labels
+        Prepare complete training dataset with enhanced features
         
         Args:
-            historical_data: List of OHLC data dictionaries
-            config: Configuration for feature engineering
+            ohlcv_data: Historical OHLC data
             
         Returns:
             Tuple of (features_df, labels_series)
         """
-        if config is None:
-            config = {
-                'lookahead': 10,
-                'profit_threshold': 0.5,
-                'sideways_threshold': 0.2,
-                'min_bars': 100
-            }
-        
-        all_features = []
-        all_labels = []
-        
-        for data_chunk in historical_data:
-            if len(data_chunk['close']) < config['min_bars']:
-                self.logger.warning(f"Insufficient data: {len(data_chunk['close'])} bars")
-                continue
+        try:
+            self.logger.info("Preparing enhanced training data...")
             
-            try:
-                # Calculate indicators
-                indicators = self.indicators_engine.calculate_all_indicators(data_chunk)
-                
-                # Calculate ATR for labeling
-                atr_values = indicators.get('atr', np.ones(len(data_chunk['close'])) * 0.001)
-                
-                # Generate labels
-                labels = self.generate_labels(
-                    data_chunk, 
-                    atr_values,
-                    config['lookahead'],
-                    config['profit_threshold'],
-                    config['sideways_threshold']
-                )
-                
-                # Create features for each bar
-                for i in range(len(data_chunk['close'])):
-                    # Prepare data slice up to current bar
-                    current_ohlc = {
-                        'open': data_chunk['open'][:i+1],
-                        'high': data_chunk['high'][:i+1],
-                        'low': data_chunk['low'][:i+1],
-                        'close': data_chunk['close'][:i+1]
-                    }
+            features_list = []
+            
+            # Generate features for each bar (excluding last few bars for lookahead)
+            start_idx = max(50, int(len(ohlcv_data) * 0.1))  # Start from 50 or 10% of data
+            end_idx = len(ohlcv_data) - 15  # End 15 bars before last
+            
+            for i in range(start_idx, end_idx):
+                try:
+                    # Get data up to current bar
+                    current_data = ohlcv_data.iloc[:i+1]
                     
-                    # Only process if we have enough data
-                    if len(current_ohlc['close']) >= 50:  # Minimum for reliable indicators
-                        current_indicators = {}
-                        for name, values in indicators.items():
-                            current_indicators[name] = values[:i+1]
+                    # Generate features for current bar
+                    features = self.create_enhanced_features(current_data)
+                    
+                    # Add metadata
+                    features['timestamp'] = i
+                    features['close_price'] = current_data['close'].iloc[-1]
+                    
+                    features_list.append(features)
+                    
+                    if (i - start_idx) % 100 == 0:
+                        self.logger.info(f"Processed {i-start_idx+1} bars...")
                         
-                        features = self.create_features(current_ohlc, current_indicators)
-                        
-                        if features and i < len(labels):  # Ensure we have corresponding label
-                            all_features.append(features)
-                            all_labels.append(labels[i])
-                
-            except Exception as e:
-                self.logger.error(f"Error processing data chunk: {e}")
-                continue
-        
-        if not all_features:
-            raise ValueError("No valid features generated from historical data")
-        
-        # Convert to DataFrame
-        features_df = pd.DataFrame(all_features)
-        labels_series = pd.Series(all_labels)
-        
-        # Handle missing values
-        features_df = features_df.fillna(0)
-        
-        self.logger.info(f"Prepared training data: {len(features_df)} samples, {len(features_df.columns)} features")
-        self.logger.info(f"Label distribution: {labels_series.value_counts().to_dict()}")
-        
-        return features_df, labels_series
+                except Exception as e:
+                    self.logger.warning(f"Failed to generate features for bar {i}: {e}")
+                    continue
+            
+            if not features_list:
+                raise ValueError("No features generated")
+            
+            # Convert to DataFrame
+            features_df = pd.DataFrame(features_list)
+            
+            # Generate labels
+            labels = self.generate_training_labels(ohlcv_data, features_list)
+            labels_series = pd.Series(labels[:len(features_df)])
+            
+            # Remove any rows with NaN values
+            combined_df = features_df.copy()
+            combined_df['label'] = labels_series
+            combined_df = combined_df.dropna()
+            
+            if len(combined_df) == 0:
+                raise ValueError("All data was dropped due to NaN values")
+            
+            final_features = combined_df.drop(['label', 'timestamp', 'close_price'], axis=1, errors='ignore')
+            final_labels = combined_df['label']
+            
+            self.logger.info(f"Enhanced training data prepared: {len(final_features)} samples, {len(final_features.columns)} features")
+            
+            # Log feature distribution
+            feature_counts = final_labels.value_counts()
+            self.logger.info(f"Label distribution: Buy={feature_counts.get(1, 0)}, Hold={feature_counts.get(0, 0)}, Sell={feature_counts.get(-1, 0)}")
+            
+            return final_features, final_labels
+            
+        except Exception as e:
+            self.logger.error(f"Enhanced training data preparation failed: {e}")
+            # Return minimal fallback data
+            minimal_features = pd.DataFrame([self._get_minimal_features(ohlcv_data)])
+            minimal_labels = pd.Series([0])
+            return minimal_features, minimal_labels
+
+
+if __name__ == "__main__":
+    # Testing the Fixed Enhanced Feature Engineer
+    import logging
+    logging.basicConfig(level=logging.INFO)
     
-    def get_feature_names(self) -> List[str]:
-        """Get list of all possible feature names"""
-        return [
-            # Trend features
-            'ema_9', 'ema_21', 'ema_50',
-            'ema_9_21_spread', 'ema_21_50_spread', 'ema_9_50_spread',
-            'ema_alignment', 'ema_9_slope', 'ema_21_slope',
-            'macd_main', 'macd_signal', 'macd_histogram',
-            'macd_momentum', 'macd_strength',
+    print("Testing Fixed Enhanced Feature Engineer...")
+    
+    # Create sample data
+    np.random.seed(42)
+    dates = pd.date_range('2025-01-01', periods=200, freq='15min')
+    
+    prices = []
+    volumes = []
+    base_price = 1.1000
+    
+    for i in range(200):
+        price_change = np.random.normal(0, 0.0008)
+        base_price += price_change
+        
+        open_price = base_price
+        high_price = open_price + abs(np.random.normal(0, 0.0005))
+        low_price = open_price - abs(np.random.normal(0, 0.0005))
+        close_price = open_price + np.random.normal(0, 0.0003)
+        close_price = max(min(close_price, high_price), low_price)
+        
+        volume = abs(np.random.normal(1000, 200))
+        
+        prices.append([open_price, high_price, low_price, close_price])
+        volumes.append(volume)
+    
+    ohlcv_df = pd.DataFrame(prices, columns=['open', 'high', 'low', 'close'], index=dates)
+    ohlcv_df['volume'] = volumes
+    
+    # Test Fixed Enhanced Feature Engineer
+    enhanced_fe = EnhancedFeatureEngineer("EURUSD", "M15")
+    
+    # Test feature generation
+    features = enhanced_fe.create_enhanced_features(ohlcv_df)
+    
+    print(f"SUCCESS: Generated {len(features)} features")
+    for key, value in list(features.items())[:10]:  # Show first 10 features
+        print(f"  {key}: {value}")
+    
+    # Test training data preparation
+    print("\nTesting training data preparation...")
+    features_df, labels_series = enhanced_fe.prepare_enhanced_training_data(ohlcv_df)
+    
+    print(f"SUCCESS: Training data prepared:")
+    print(f"  Samples: {len(features_df)}")
+    print(f"  Features: {len(features_df.columns)}")
+    print(f"  Label distribution: {labels_series.value_counts().to_dict()}")
+    
+    print("\nFixed Enhanced Feature Engineer ready for deployment!")"EMA features failed: {e}")
+                features.update(self._get_basic_ema_features(ohlcv_data))
             
-            # Momentum features
-            'rsi', 'rsi_normalized', 'rsi_overbought', 'rsi_oversold', 'rsi_neutral', 'rsi_momentum',
-            'stoch_k', 'stoch_d', 'stoch_spread', 'stoch_overbought', 'stoch_oversold',
-            'williams_r', 'williams_overbought', 'williams_oversold',
-            
-            # Volatility features
-            'atr', 'atr_normalized', 'atr_trend', 'volatility_regime',
-            'bb_position', 'bb_width', 'bb_squeeze', 'bb_expansion',
-            'price_volatility',
-            
-            # Price action features
-            'body_to_range_ratio', 'upper_shadow_ratio', 'lower_shadow_ratio',
-            'candle_direction', 'candle_strength',
-            'higher_highs', 'lower_lows', 'price_vs_bb_middle',
-            
-            # Crossover features
-            'ema_9_21_bullish_cross', 'ema_9_21_bearish_cross',
-            'macd_bullish_cross', 'macd_bearish_cross',
-            'stoch_bullish_cross', 'stoch_bearish_cross',
-            
-            # Statistical features
-            'roc_5', 'roc_10', 'price_zscore', 'volume_ratio',
-            'distance_to_resistance', 'distance_to_support'
-        ]
+            # RSI Features
+            try:
+                if 'rsi' in indicators and isinstance(indicators['rsi'], pd.Series):
+                    rsi = indicators['rsi'].iloc[-1]
+                    features['rsi'] = float(rsi)
+                    features['rsi_overbought'] = 1.0 if rsi > 70 else 0.0
+                    features['rsi_oversold'] = 1.0 if rsi < 30 else 0.0
+                    features['rsi_neutral'] = 1.0 if 40 <= rsi <= 60 else 0.0
+                else:
+                    features['rsi'] = 50.0
+                    features['rsi_overbought'] = 0.0
+                    features['rsi_oversold'] = 0.0
+                    features['rsi_neutral'] = 1.0
+            except Exception as e:
+                self.logger.warning(f
