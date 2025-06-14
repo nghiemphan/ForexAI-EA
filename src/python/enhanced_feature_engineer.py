@@ -1,8 +1,8 @@
 """
-File: src/python/feature_engineer.py
-Description: Fixed Enhanced Feature Engineering with proper error handling
+File: src/python/enhanced_feature_engineer.py
+Description: Enhanced Feature Engineering with Volume Profile and VWAP Integration
 Author: Claude AI Developer
-Version: 2.0.1
+Version: 2.0.2
 Created: 2025-06-13
 Modified: 2025-06-14
 """
@@ -181,6 +181,25 @@ class EnhancedFeatureEngineer:
                         features['ema_9_slope'] = float(ema_9_slope)
                     else:
                         features['ema_9_slope'] = 0.0
+                else:
+                    features.update(self._get_basic_ema_features(ohlcv_data))
+            except Exception as e:
+                self.logger.warning(f"EMA features failed: {e}")
+                features.update(self._get_basic_ema_features(ohlcv_data))
+            
+            # RSI Features
+            try:
+                if 'rsi' in indicators and isinstance(indicators['rsi'], pd.Series):
+                    rsi = indicators['rsi'].iloc[-1]
+                    features['rsi'] = float(rsi)
+                    features['rsi_overbought'] = 1.0 if rsi > 70 else 0.0
+                    features['rsi_oversold'] = 1.0 if rsi < 30 else 0.0
+                    features['rsi_neutral'] = 1.0 if 40 <= rsi <= 60 else 0.0
+                else:
+                    features['rsi'] = 50.0
+                    features['rsi_overbought'] = 0.0
+                    features['rsi_oversold'] = 0.0
+                    features['rsi_neutral'] = 1.0
             except Exception as e:
                 self.logger.warning(f"RSI features failed: {e}")
                 features['rsi'] = 50.0
@@ -529,6 +548,13 @@ class EnhancedFeatureEngineer:
             features['bullish_signal_count'] = float(bullish_signals)
             features['signal_strength'] = float(bullish_signals / 4.0)
             
+            # Multi-timeframe confluence (simulated)
+            ema_confluence = 0
+            if existing_features.get('price_above_ema_9', 0) == 1.0: ema_confluence += 1
+            if existing_features.get('price_above_ema_21', 0) == 1.0: ema_confluence += 1
+            features['multi_timeframe_bullish'] = float(ema_confluence / 2.0)
+            features['momentum_bullish'] = 1.0 if bullish_signals >= 2 else 0.0
+            
             return features
             
         except Exception as e:
@@ -597,6 +623,24 @@ class EnhancedFeatureEngineer:
                     'near_support': 0.0,
                     'near_resistance': 0.0
                 })
+            
+            # Volatility regime
+            if len(ohlcv_data) >= 14:
+                recent_atr = (ohlcv_data['high'] - ohlcv_data['low']).tail(14).mean()
+                long_atr = (ohlcv_data['high'] - ohlcv_data['low']).tail(50).mean() if len(ohlcv_data) >= 50 else recent_atr
+                
+                if long_atr > 0:
+                    volatility_ratio = recent_atr / long_atr
+                    if volatility_ratio > 1.5:
+                        features['volatility_regime'] = 2.0  # High volatility
+                    elif volatility_ratio < 0.7:
+                        features['volatility_regime'] = 0.0  # Low volatility
+                    else:
+                        features['volatility_regime'] = 1.0  # Normal volatility
+                else:
+                    features['volatility_regime'] = 1.0
+            else:
+                features['volatility_regime'] = 1.0
             
             return features
             
@@ -826,21 +870,4 @@ if __name__ == "__main__":
     print(f"  Features: {len(features_df.columns)}")
     print(f"  Label distribution: {labels_series.value_counts().to_dict()}")
     
-    print("\nFixed Enhanced Feature Engineer ready for deployment!")"EMA features failed: {e}")
-                features.update(self._get_basic_ema_features(ohlcv_data))
-            
-            # RSI Features
-            try:
-                if 'rsi' in indicators and isinstance(indicators['rsi'], pd.Series):
-                    rsi = indicators['rsi'].iloc[-1]
-                    features['rsi'] = float(rsi)
-                    features['rsi_overbought'] = 1.0 if rsi > 70 else 0.0
-                    features['rsi_oversold'] = 1.0 if rsi < 30 else 0.0
-                    features['rsi_neutral'] = 1.0 if 40 <= rsi <= 60 else 0.0
-                else:
-                    features['rsi'] = 50.0
-                    features['rsi_overbought'] = 0.0
-                    features['rsi_oversold'] = 0.0
-                    features['rsi_neutral'] = 1.0
-            except Exception as e:
-                self.logger.warning(f
+    print("\nFixed Enhanced Feature Engineer ready for deployment!")

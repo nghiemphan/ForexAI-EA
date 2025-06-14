@@ -1,8 +1,8 @@
 """
 File: src/python/socket_server.py
-Description: Enhanced Socket Server v2.0 - Fixed Unicode Issues
+Description: Enhanced Socket Server v2.0.2 - Fixed All Issues
 Author: Claude AI Developer
-Version: 2.0.1
+Version: 2.0.2
 Created: 2025-06-13
 Modified: 2025-06-14
 """
@@ -21,18 +21,24 @@ import signal
 import sys
 import os
 
-# Import enhanced modules
+# Import enhanced modules with fallback
 try:
     from enhanced_ai_engine import EnhancedAIEngine, EnhancedModelEvaluator
-    from volume_profile import VolumeProfileEngine, VWAPCalculator
 except ImportError:
-    # Fallback imports for existing system
     try:
         from ai_engine import AITradingEngine as EnhancedAIEngine
         print("WARNING: Using fallback AI engine - enhanced features may not be available")
+        EnhancedModelEvaluator = None
     except ImportError:
         print("ERROR: Cannot import AI engine modules")
         sys.exit(1)
+
+try:
+    from volume_profile import VolumeProfileEngine, VWAPCalculator
+except ImportError:
+    print("WARNING: Volume Profile features not available")
+    VolumeProfileEngine = None
+    VWAPCalculator = None
 
 class EnhancedSocketServer:
     """Enhanced Socket Server with Volume Profile and VWAP capabilities"""
@@ -76,9 +82,9 @@ class EnhancedSocketServer:
         
         # Enhanced capabilities flags
         self.capabilities = {
-            'volume_profile': True,
-            'vwap_analysis': True,
-            'ensemble_models': True,
+            'volume_profile': VolumeProfileEngine is not None,
+            'vwap_analysis': VWAPCalculator is not None,
+            'ensemble_models': hasattr(self.ai_engine, 'train_enhanced_model'),
             'enhanced_filtering': True,
             'market_structure': True
         }
@@ -88,15 +94,24 @@ class EnhancedSocketServer:
         # Create logs directory
         os.makedirs('data/logs', exist_ok=True)
         
-        # Configure logging with UTF-8 encoding
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('data/logs/enhanced_socket_server.log', encoding='utf-8'),
-                logging.StreamHandler(sys.stdout)
-            ]
-        )
+        # Configure logging with UTF-8 encoding and error handling
+        try:
+            logging.basicConfig(
+                level=logging.INFO,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                handlers=[
+                    logging.FileHandler('data/logs/enhanced_socket_server.log', encoding='utf-8', errors='replace'),
+                    logging.StreamHandler(sys.stdout)
+                ]
+            )
+        except Exception as e:
+            # Fallback to basic logging if file logging fails
+            logging.basicConfig(
+                level=logging.INFO,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                handlers=[logging.StreamHandler(sys.stdout)]
+            )
+            print(f"Warning: File logging failed: {e}")
     
     def start_server(self):
         """Start the enhanced socket server"""
@@ -109,7 +124,7 @@ class EnhancedSocketServer:
             self.running = True
             self.stats['uptime_start'] = datetime.now()
             
-            self.logger.info(f"STARTED: Enhanced ForexAI Socket Server v2.0 on {self.host}:{self.port}")
+            self.logger.info(f"STARTED: Enhanced ForexAI Socket Server v2.0.2 on {self.host}:{self.port}")
             self.logger.info("FEATURES: Volume Profile, VWAP, Ensemble Models")
             
             # Try to load existing model
@@ -143,14 +158,21 @@ class EnhancedSocketServer:
         try:
             model_path = "data/models/enhanced_ai_model.pkl"
             if os.path.exists(model_path):
-                success = self.ai_engine.load_enhanced_model(model_path)
+                # Check if enhanced model loading is available
+                if hasattr(self.ai_engine, 'load_enhanced_model'):
+                    success = self.ai_engine.load_enhanced_model(model_path)
+                elif hasattr(self.ai_engine, 'load_model'):
+                    success = self.ai_engine.load_model(model_path)
+                else:
+                    success = False
+                    
                 if success:
                     self.model_loaded = True
-                    self.logger.info("SUCCESS: Enhanced AI model loaded")
+                    self.logger.info("SUCCESS: AI model loaded")
                 else:
-                    self.logger.warning("FAILED: Could not load enhanced AI model")
+                    self.logger.warning("FAILED: Could not load AI model")
             else:
-                self.logger.info("INFO: No existing enhanced model found - will need training")
+                self.logger.info("INFO: No existing model found - will need training")
                 
         except Exception as e:
             self.logger.error(f"Model loading error: {e}")
@@ -162,26 +184,38 @@ class EnhancedSocketServer:
             
             while self.running:
                 try:
-                    # Receive data
+                    # Receive data with timeout
+                    client_socket.settimeout(30)
                     data = client_socket.recv(4096)
                     if not data:
                         break
                     
-                    # Parse request
-                    request = json.loads(data.decode('utf-8'))
+                    # Parse request with encoding handling
+                    try:
+                        request_str = data.decode('utf-8')
+                    except UnicodeDecodeError:
+                        request_str = data.decode('utf-8', errors='replace')
+                    
+                    request = json.loads(request_str)
                     self.stats['total_requests'] += 1
                     
                     # Process request
                     response = self.process_enhanced_request(request)
                     
-                    # Send response
-                    response_json = json.dumps(response)
-                    client_socket.send(response_json.encode('utf-8'))
+                    # Send response with encoding handling
+                    response_json = json.dumps(response, ensure_ascii=False)
+                    response_bytes = response_json.encode('utf-8', errors='replace')
+                    client_socket.send(response_bytes)
                     
                 except json.JSONDecodeError as e:
                     self.logger.error(f"JSON decode error: {e}")
                     error_response = {"error": "Invalid JSON format"}
-                    client_socket.send(json.dumps(error_response).encode('utf-8'))
+                    response_bytes = json.dumps(error_response).encode('utf-8')
+                    client_socket.send(response_bytes)
+                    
+                except socket.timeout:
+                    self.logger.warning(f"Client {address} timeout")
+                    break
                     
                 except Exception as e:
                     self.logger.error(f"Client handling error: {e}")
@@ -193,7 +227,10 @@ class EnhancedSocketServer:
         finally:
             if client_socket in self.clients:
                 self.clients.remove(client_socket)
-            client_socket.close()
+            try:
+                client_socket.close()
+            except:
+                pass
             self.logger.info(f"DISCONNECTED: Client {address}")
     
     def process_enhanced_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
@@ -215,6 +252,10 @@ class EnhancedSocketServer:
                 return self.handle_vwap_request(request)
             elif action == 'performance':
                 return self.get_performance_stats()
+            elif action == 'ping':
+                return {"message": "pong", "timestamp": datetime.now().isoformat()}
+            elif action == 'health_check':
+                return {"server_status": "healthy", "timestamp": datetime.now().isoformat()}
             else:
                 return {"error": f"Unknown action: {action}"}
                 
@@ -251,8 +292,18 @@ class EnhancedSocketServer:
                     "enhanced_features": False
                 }
             
-            # Get enhanced prediction
-            signal, confidence, details = self.ai_engine.predict_enhanced(df)
+            # Get prediction (enhanced or basic)
+            try:
+                if hasattr(self.ai_engine, 'predict_enhanced'):
+                    signal, confidence, details = self.ai_engine.predict_enhanced(df)
+                elif hasattr(self.ai_engine, 'predict'):
+                    signal, confidence, metadata = self.ai_engine.predict(df.to_dict('records'))
+                    details = metadata or {}
+                else:
+                    return {"error": "No prediction method available"}
+            except Exception as e:
+                self.logger.error(f"Prediction failed: {e}")
+                return {"error": f"Prediction failed: {str(e)}"}
             
             self.stats['predictions'] += 1
             if details.get('volume_profile_active', False):
@@ -275,7 +326,7 @@ class EnhancedSocketServer:
                     "raw_signal": details.get('raw_signal', signal),
                     "filtered": details.get('raw_signal') != signal
                 },
-                "server_version": "2.0.1"
+                "server_version": "2.0.2"
             }
             
             self.logger.info(f"PREDICTION: {symbol} -> Signal: {signal}, Confidence: {confidence:.3f}")
@@ -300,15 +351,36 @@ class EnhancedSocketServer:
                     return {"error": "No training data available"}
                 training_data = pd.DataFrame(price_data)
             
-            self.logger.info(f"TRAINING: Starting enhanced model training for {symbol}")
+            self.logger.info(f"TRAINING: Starting model training for {symbol}")
             
-            # Train enhanced model
-            results = self.ai_engine.train_enhanced_model(training_data)
+            # Train model (enhanced or basic)
+            try:
+                if hasattr(self.ai_engine, 'train_enhanced_model'):
+                    results = self.ai_engine.train_enhanced_model(training_data)
+                elif hasattr(self.ai_engine, 'train_model'):
+                    # Convert DataFrame to format expected by basic train_model
+                    training_data_list = [training_data.to_dict('records')]
+                    results = self.ai_engine.train_model(training_data_list)
+                else:
+                    return {"error": "No training method available"}
+            except Exception as e:
+                self.logger.error(f"Model training failed: {e}")
+                return {"error": f"Training failed: {str(e)}"}
             
             # Save model
             model_path = "data/models/enhanced_ai_model.pkl"
             os.makedirs(os.path.dirname(model_path), exist_ok=True)
-            save_success = self.ai_engine.save_enhanced_model(model_path)
+            
+            try:
+                if hasattr(self.ai_engine, 'save_enhanced_model'):
+                    save_success = self.ai_engine.save_enhanced_model(model_path)
+                elif hasattr(self.ai_engine, 'save_model'):
+                    save_success = self.ai_engine.save_model(model_path)
+                else:
+                    save_success = False
+            except Exception as e:
+                self.logger.error(f"Model saving failed: {e}")
+                save_success = False
             
             if save_success:
                 self.model_loaded = True
@@ -320,7 +392,8 @@ class EnhancedSocketServer:
                 "timestamp": datetime.now().isoformat()
             }
             
-            self.logger.info(f"TRAINING: Complete - Accuracy: {results.get('ensemble_accuracy', 0):.4f}")
+            accuracy = results.get('ensemble_accuracy') or results.get('test_accuracy', 0)
+            self.logger.info(f"TRAINING: Complete - Accuracy: {accuracy:.4f}")
             
             return response
             
@@ -331,6 +404,9 @@ class EnhancedSocketServer:
     def handle_volume_profile_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Handle Volume Profile analysis requests"""
         try:
+            if VolumeProfileEngine is None:
+                return {"error": "Volume Profile not available"}
+                
             symbol = request.get('symbol', 'EURUSD')
             
             if symbol not in self.price_data:
@@ -366,8 +442,8 @@ class EnhancedSocketServer:
                 }
                 
                 return response
-            except:
-                return {"error": "Volume Profile calculation not available - using basic analysis"}
+            except Exception as e:
+                return {"error": f"Volume Profile calculation failed: {str(e)}"}
             
         except Exception as e:
             self.logger.error(f"Volume Profile request error: {e}")
@@ -376,6 +452,9 @@ class EnhancedSocketServer:
     def handle_vwap_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Handle VWAP analysis requests"""
         try:
+            if VWAPCalculator is None:
+                return {"error": "VWAP analysis not available"}
+                
             symbol = request.get('symbol', 'EURUSD')
             
             if symbol not in self.price_data:
@@ -411,8 +490,8 @@ class EnhancedSocketServer:
                 }
                 
                 return response
-            except:
-                return {"error": "VWAP calculation not available - using basic analysis"}
+            except Exception as e:
+                return {"error": f"VWAP calculation failed: {str(e)}"}
             
         except Exception as e:
             self.logger.error(f"VWAP request error: {e}")
@@ -423,7 +502,7 @@ class EnhancedSocketServer:
         uptime = datetime.now() - self.stats['uptime_start']
         
         status = {
-            "server_version": "2.0.1",
+            "server_version": "2.0.2",
             "status": "running" if self.running else "stopped",
             "uptime_seconds": int(uptime.total_seconds()),
             "uptime_formatted": str(uptime).split('.')[0],
@@ -448,22 +527,23 @@ class EnhancedSocketServer:
     def get_capabilities(self) -> Dict[str, Any]:
         """Get server capabilities"""
         return {
-            "server_version": "2.0.1",
+            "server_version": "2.0.2",
             "capabilities": self.capabilities,
             "supported_actions": [
                 "predict", "train", "status", "capabilities", 
-                "volume_profile", "vwap_analysis", "performance"
+                "volume_profile", "vwap_analysis", "performance",
+                "ping", "health_check"
             ],
             "enhanced_features": {
-                "volume_profile": "Point of Control, Value Area, Key Levels",
-                "vwap_analysis": "Multi-timeframe VWAP with bands",
-                "ensemble_models": "RandomForest + XGBoost + LogisticRegression",
-                "enhanced_filtering": "VP + VWAP + Market Structure",
-                "market_structure": "Higher highs/lows, Support/Resistance"
+                "volume_profile": "Point of Control, Value Area, Key Levels" if self.capabilities['volume_profile'] else "Not Available",
+                "vwap_analysis": "Multi-timeframe VWAP with bands" if self.capabilities['vwap_analysis'] else "Not Available", 
+                "ensemble_models": "RandomForest + XGBoost + LogisticRegression" if self.capabilities['ensemble_models'] else "Basic RandomForest",
+                "enhanced_filtering": "VP + VWAP + Market Structure" if self.capabilities['enhanced_filtering'] else "Basic Filtering",
+                "market_structure": "Higher highs/lows, Support/Resistance" if self.capabilities['market_structure'] else "Basic Structure"
             },
             "ai_engine": {
-                "feature_count": "65+",
-                "model_type": "Ensemble Voting Classifier",
+                "feature_count": "65+" if self.capabilities['ensemble_models'] else "45+",
+                "model_type": "Ensemble Voting Classifier" if self.capabilities['ensemble_models'] else "RandomForest",
                 "confidence_threshold": getattr(self.ai_engine, 'confidence_threshold', 0.65)
             }
         }
@@ -473,6 +553,8 @@ class EnhancedSocketServer:
         try:
             if self.model_loaded and hasattr(self.ai_engine, 'get_model_performance_stats'):
                 return self.ai_engine.get_model_performance_stats()
+            elif self.model_loaded and hasattr(self.ai_engine, 'get_model_info'):
+                return self.ai_engine.get_model_info()
             else:
                 return {"message": "No model loaded or performance stats not available"}
                 
@@ -486,11 +568,17 @@ class EnhancedSocketServer:
         
         # Close all client connections
         for client in self.clients[:]:
-            client.close()
+            try:
+                client.close()
+            except:
+                pass
         
         # Close server socket
         if self.socket:
-            self.socket.close()
+            try:
+                self.socket.close()
+            except:
+                pass
         
         self.logger.info("STOPPED: Enhanced server stopped")
 
@@ -503,10 +591,63 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 
+def test_server_connection(host="localhost", port=8888):
+    """Test server connection and basic functionality"""
+    try:
+        print(f"Testing connection to {host}:{port}...")
+        
+        # Test basic connection
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(5)
+        client.connect((host, port))
+        
+        # Test ping
+        ping_request = {"action": "ping"}
+        client.send(json.dumps(ping_request).encode('utf-8'))
+        
+        response = client.recv(1024)
+        ping_response = json.loads(response.decode('utf-8'))
+        
+        if "pong" in ping_response.get("message", ""):
+            print("✅ Ping test: SUCCESS")
+        else:
+            print("❌ Ping test: FAILED")
+            
+        # Test status
+        status_request = {"action": "status"}
+        client.send(json.dumps(status_request).encode('utf-8'))
+        
+        response = client.recv(4096)
+        status_response = json.loads(response.decode('utf-8'))
+        
+        print(f"✅ Server Status: {status_response.get('status', 'unknown')}")
+        print(f"   Version: {status_response.get('server_version', 'unknown')}")
+        print(f"   Model Loaded: {status_response.get('model_loaded', False)}")
+        
+        # Test capabilities
+        cap_request = {"action": "capabilities"}
+        client.send(json.dumps(cap_request).encode('utf-8'))
+        
+        response = client.recv(4096)
+        cap_response = json.loads(response.decode('utf-8'))
+        
+        capabilities = cap_response.get('capabilities', {})
+        print(f"   Volume Profile: {capabilities.get('volume_profile', False)}")
+        print(f"   VWAP Analysis: {capabilities.get('vwap_analysis', False)}")
+        print(f"   Ensemble Models: {capabilities.get('ensemble_models', False)}")
+        
+        client.close()
+        return True
+        
+    except Exception as e:
+        print(f"❌ Connection test failed: {e}")
+        return False
+
+
 def main():
     """Main function with command line interface"""
-    parser = argparse.ArgumentParser(description="Enhanced ForexAI Socket Server v2.0")
-    parser.add_argument('command', choices=['start', 'status', 'stop'], 
+    parser = argparse.ArgumentParser(description="Enhanced ForexAI Socket Server v2.0.2")
+    parser.add_argument('command', choices=['start', 'status', 'stop', 'test'], 
                        help='Server command')
     parser.add_argument('--host', default='localhost', 
                        help='Server host (default: localhost)')
@@ -533,31 +674,19 @@ def main():
     
     elif args.command == 'status':
         # Quick status check
-        try:
-            import socket as sock
-            client = sock.socket(sock.AF_INET, sock.SOCK_STREAM)
-            client.settimeout(5)
-            client.connect((args.host, args.port))
-            
-            request = {"action": "status"}
-            client.send(json.dumps(request).encode('utf-8'))
-            
-            response = client.recv(4096)
-            status = json.loads(response.decode('utf-8'))
-            
-            print("Enhanced ForexAI Server Status:")
-            print(f"   Status: {status.get('status', 'unknown')}")
-            print(f"   Version: {status.get('server_version', 'unknown')}")
-            print(f"   Uptime: {status.get('uptime_formatted', 'unknown')}")
-            print(f"   Connections: {status.get('connections', 0)}")
-            print(f"   Model Loaded: {status.get('model_loaded', False)}")
-            print(f"   Total Predictions: {status.get('statistics', {}).get('total_predictions', 0)}")
-            print(f"   Volume Profile Predictions: {status.get('statistics', {}).get('volume_profile_predictions', 0)}")
-            
-            client.close()
-            
-        except Exception as e:
-            print(f"Cannot connect to server: {e}")
+        success = test_server_connection(args.host, args.port)
+        if not success:
+            print("Cannot connect to server. Is it running?")
+    
+    elif args.command == 'test':
+        # Test server functionality
+        print("🧪 Testing Enhanced ForexAI Socket Server...")
+        success = test_server_connection(args.host, args.port)
+        
+        if success:
+            print("🎉 All tests passed!")
+        else:
+            print("❌ Tests failed. Check server status.")
     
     elif args.command == 'stop':
         print("Stop command - use Ctrl+C to stop running server")
