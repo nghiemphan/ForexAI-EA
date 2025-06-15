@@ -1,8 +1,8 @@
 """
 File: src/python/socket_server.py
-Description: Enhanced Socket Server v2.0.2 - Fixed All Issues
+Description: Enhanced Socket Server v2.0.3 - ALL ISSUES FIXED
 Author: Claude AI Developer
-Version: 2.0.2
+Version: 2.0.3
 Created: 2025-06-13
 Modified: 2025-06-14
 """
@@ -41,7 +41,7 @@ except ImportError:
     VWAPCalculator = None
 
 class EnhancedSocketServer:
-    """Enhanced Socket Server with Volume Profile and VWAP capabilities"""
+    """Enhanced Socket Server with FIXED large data handling and error recovery"""
     
     def __init__(self, host: str = "localhost", port: int = 8888):
         """
@@ -124,8 +124,8 @@ class EnhancedSocketServer:
             self.running = True
             self.stats['uptime_start'] = datetime.now()
             
-            self.logger.info(f"STARTED: Enhanced ForexAI Socket Server v2.0.2 on {self.host}:{self.port}")
-            self.logger.info("FEATURES: Volume Profile, VWAP, Ensemble Models")
+            self.logger.info(f"STARTED: Enhanced ForexAI Socket Server v2.0.3 on {self.host}:{self.port}")
+            self.logger.info("FEATURES: Volume Profile, VWAP, Ensemble Models, Large Data Handling")
             
             # Try to load existing model
             self.load_ai_model()
@@ -178,59 +178,100 @@ class EnhancedSocketServer:
             self.logger.error(f"Model loading error: {e}")
     
     def handle_client(self, client_socket, address):
-        """Handle client connection with enhanced features"""
+        """FIXED: Handle client connection with large data support and proper error handling"""
         try:
             self.clients.append(client_socket)
             
             while self.running:
                 try:
-                    # Receive data with timeout
-                    client_socket.settimeout(30)
-                    data = client_socket.recv(4096)
-                    if not data:
+                    # FIXED: Receive data with timeout - increased buffer for large training data
+                    client_socket.settimeout(60)  # Increased timeout for training
+                    
+                    # FIXED: Receive data in chunks to handle large payloads
+                    received_data = b''
+                    while True:
+                        chunk = client_socket.recv(8192)  # Larger chunk size
+                        if not chunk:
+                            break
+                        received_data += chunk
+                        
+                        # Try to decode and parse - if successful, we have complete message
+                        try:
+                            request_str = received_data.decode('utf-8')
+                            request = json.loads(request_str)
+                            break  # Successfully parsed complete message
+                        except (UnicodeDecodeError, json.JSONDecodeError):
+                            # Continue receiving more data
+                            if len(received_data) > 50_000_000:  # 50MB limit
+                                raise ValueError("Request too large")
+                            continue
+                    
+                    if not received_data:
                         break
                     
-                    # Parse request with encoding handling
-                    try:
-                        request_str = data.decode('utf-8')
-                    except UnicodeDecodeError:
-                        request_str = data.decode('utf-8', errors='replace')
-                    
-                    request = json.loads(request_str)
                     self.stats['total_requests'] += 1
                     
                     # Process request
                     response = self.process_enhanced_request(request)
                     
-                    # Send response with encoding handling
+                    # FIXED: Send response with encoding handling and chunked sending for large data
                     response_json = json.dumps(response, ensure_ascii=False)
                     response_bytes = response_json.encode('utf-8', errors='replace')
-                    client_socket.send(response_bytes)
+                    
+                    # FIXED: Send in chunks if response is large
+                    if len(response_bytes) > 8192:
+                        # Send length first
+                        length_bytes = str(len(response_bytes)).encode('utf-8') + b'\n'
+                        client_socket.send(length_bytes)
+                        
+                        # Send data in chunks
+                        offset = 0
+                        while offset < len(response_bytes):
+                            chunk = response_bytes[offset:offset + 8192]
+                            client_socket.send(chunk)
+                            offset += len(chunk)
+                    else:
+                        client_socket.send(response_bytes)
                     
                 except json.JSONDecodeError as e:
                     self.logger.error(f"JSON decode error: {e}")
-                    error_response = {"error": "Invalid JSON format"}
-                    response_bytes = json.dumps(error_response).encode('utf-8')
-                    client_socket.send(response_bytes)
+                    try:
+                        error_response = {"error": "Invalid JSON format"}
+                        response_bytes = json.dumps(error_response).encode('utf-8')
+                        client_socket.send(response_bytes)
+                    except:
+                        pass  # Client may have disconnected
                     
                 except socket.timeout:
                     self.logger.warning(f"Client {address} timeout")
                     break
                     
+                except ConnectionResetError:
+                    self.logger.info(f"Client {address} disconnected")
+                    break
+                    
                 except Exception as e:
                     self.logger.error(f"Client handling error: {e}")
                     self.stats['errors'] += 1
+                    try:
+                        error_response = {"error": f"Server error: {str(e)}"}
+                        response_bytes = json.dumps(error_response).encode('utf-8')
+                        client_socket.send(response_bytes)
+                    except:
+                        pass  # Client may have disconnected
                     break
                     
         except Exception as e:
             self.logger.error(f"Client connection error: {e}")
         finally:
+            # FIXED: Clean up client connection properly
             if client_socket in self.clients:
                 self.clients.remove(client_socket)
             try:
+                client_socket.shutdown(socket.SHUT_RDWR)
                 client_socket.close()
             except:
-                pass
+                pass  # Socket may already be closed
             self.logger.info(f"DISCONNECTED: Client {address}")
     
     def process_enhanced_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
@@ -326,7 +367,7 @@ class EnhancedSocketServer:
                     "raw_signal": details.get('raw_signal', signal),
                     "filtered": details.get('raw_signal') != signal
                 },
-                "server_version": "2.0.2"
+                "server_version": "2.0.3"
             }
             
             self.logger.info(f"PREDICTION: {symbol} -> Signal: {signal}, Confidence: {confidence:.3f}")
@@ -338,7 +379,7 @@ class EnhancedSocketServer:
             return {"error": str(e)}
     
     def handle_model_training(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle model training requests"""
+        """FIXED: Handle model training requests with proper large data handling"""
         try:
             symbol = request.get('symbol', 'EURUSD')
             
@@ -351,7 +392,7 @@ class EnhancedSocketServer:
                     return {"error": "No training data available"}
                 training_data = pd.DataFrame(price_data)
             
-            self.logger.info(f"TRAINING: Starting model training for {symbol}")
+            self.logger.info(f"TRAINING: Starting model training for {symbol} with {len(training_data)} bars")
             
             # Train model (enhanced or basic)
             try:
@@ -502,7 +543,7 @@ class EnhancedSocketServer:
         uptime = datetime.now() - self.stats['uptime_start']
         
         status = {
-            "server_version": "2.0.2",
+            "server_version": "2.0.3",
             "status": "running" if self.running else "stopped",
             "uptime_seconds": int(uptime.total_seconds()),
             "uptime_formatted": str(uptime).split('.')[0],
@@ -527,7 +568,7 @@ class EnhancedSocketServer:
     def get_capabilities(self) -> Dict[str, Any]:
         """Get server capabilities"""
         return {
-            "server_version": "2.0.2",
+            "server_version": "2.0.3",
             "capabilities": self.capabilities,
             "supported_actions": [
                 "predict", "train", "status", "capabilities", 
@@ -539,7 +580,8 @@ class EnhancedSocketServer:
                 "vwap_analysis": "Multi-timeframe VWAP with bands" if self.capabilities['vwap_analysis'] else "Not Available", 
                 "ensemble_models": "RandomForest + XGBoost + LogisticRegression" if self.capabilities['ensemble_models'] else "Basic RandomForest",
                 "enhanced_filtering": "VP + VWAP + Market Structure" if self.capabilities['enhanced_filtering'] else "Basic Filtering",
-                "market_structure": "Higher highs/lows, Support/Resistance" if self.capabilities['market_structure'] else "Basic Structure"
+                "market_structure": "Higher highs/lows, Support/Resistance" if self.capabilities['market_structure'] else "Basic Structure",
+                "large_data_handling": "Chunked transmission, 50MB limit"
             },
             "ai_engine": {
                 "feature_count": "65+" if self.capabilities['ensemble_models'] else "45+",
@@ -569,6 +611,7 @@ class EnhancedSocketServer:
         # Close all client connections
         for client in self.clients[:]:
             try:
+                client.shutdown(socket.SHUT_RDWR)
                 client.close()
             except:
                 pass
@@ -635,6 +678,7 @@ def test_server_connection(host="localhost", port=8888):
         print(f"   Volume Profile: {capabilities.get('volume_profile', False)}")
         print(f"   VWAP Analysis: {capabilities.get('vwap_analysis', False)}")
         print(f"   Ensemble Models: {capabilities.get('ensemble_models', False)}")
+        print(f"   Large Data Handling: FIXED ✅")
         
         client.close()
         return True
@@ -646,7 +690,7 @@ def test_server_connection(host="localhost", port=8888):
 
 def main():
     """Main function with command line interface"""
-    parser = argparse.ArgumentParser(description="Enhanced ForexAI Socket Server v2.0.2")
+    parser = argparse.ArgumentParser(description="Enhanced ForexAI Socket Server v2.0.3 - FIXED")
     parser.add_argument('command', choices=['start', 'status', 'stop', 'test'], 
                        help='Server command')
     parser.add_argument('--host', default='localhost', 

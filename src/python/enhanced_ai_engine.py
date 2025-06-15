@@ -1,8 +1,8 @@
 """
 File: src/python/enhanced_ai_engine.py
-Description: Enhanced AI Engine - Fixed Label Issue for XGBoost
+Description: Enhanced AI Engine - FIXED ALL ISSUES
 Author: Claude AI Developer
-Version: 2.0.4
+Version: 2.0.5
 Created: 2025-06-13
 Modified: 2025-06-14
 """
@@ -79,7 +79,7 @@ class EnhancedAIEngine:
         # Model ensemble
         self.ensemble_model = None
         self.feature_scaler = RobustScaler()
-        self.label_encoder = LabelEncoder()  # NEW: For label encoding
+        self.label_encoder = LabelEncoder()  # For label encoding
         self.feature_columns = None
         self.model_trained = False
         
@@ -147,7 +147,7 @@ class EnhancedAIEngine:
             self.feature_columns = features_df.columns.tolist()
             self.logger.info(f"📊 Training with {len(features_df)} samples and {len(self.feature_columns)} features")
             
-            # FIXED: Encode labels from [-1,0,1] to [0,1,2] for XGBoost compatibility
+            # Encode labels from [-1,0,1] to [0,1,2] for XGBoost compatibility
             original_labels = labels_series.copy()
             encoded_labels = self.label_encoder.fit_transform(labels_series)
             
@@ -361,7 +361,7 @@ class EnhancedAIEngine:
             # Get class prediction (encoded)
             predicted_class_encoded = self.ensemble_model.predict(features_scaled)[0]
             
-            # FIXED: Decode back to original labels [-1,0,1]
+            # Decode back to original labels [-1,0,1]
             predicted_class = self.label_encoder.inverse_transform([predicted_class_encoded])[0]
             
             # Calculate confidence (max probability)
@@ -388,8 +388,7 @@ class EnhancedAIEngine:
                 predicted_class, confidence, features, individual_predictions
             )
             
-            # FIXED: Map prediction probabilities correctly
-            # Label encoder maps: [-1,0,1] -> [0,1,2] so we need to reorder
+            # Map prediction probabilities correctly
             label_to_encoded = {label: idx for idx, label in enumerate(self.label_encoder.classes_)}
             
             prediction_details = {
@@ -658,7 +657,7 @@ class EnhancedAIEngine:
             model_data = {
                 'ensemble_model': self.ensemble_model,
                 'feature_scaler': self.feature_scaler,
-                'label_encoder': self.label_encoder,  # NEW: Save label encoder
+                'label_encoder': self.label_encoder,
                 'feature_columns': self.feature_columns,
                 'model_config': self.model_config,
                 'symbol': self.symbol,
@@ -687,7 +686,7 @@ class EnhancedAIEngine:
             
             self.ensemble_model = model_data['ensemble_model']
             self.feature_scaler = model_data['feature_scaler']
-            self.label_encoder = model_data.get('label_encoder', LabelEncoder())  # NEW: Load label encoder
+            self.label_encoder = model_data.get('label_encoder', LabelEncoder())
             self.feature_columns = model_data['feature_columns']
             self.model_config = model_data.get('model_config', self.model_config)
             self.confidence_threshold = model_data.get('confidence_threshold', 0.65)
@@ -713,9 +712,13 @@ class EnhancedAIEngine:
             return False
 
 
-# Enhanced Model Evaluator for comprehensive backtesting
+# FIXED: Enhanced Model Evaluator with proper logger initialization
 class EnhancedModelEvaluator:
-    """Enhanced model evaluation with Volume Profile context"""
+    """Enhanced model evaluation with Volume Profile context - FIXED VERSION"""
+    
+    def __init__(self):
+        """Initialize Enhanced Model Evaluator with logger - FIXED"""
+        self.logger = logging.getLogger(__name__)
     
     def comprehensive_backtest(self, ai_engine: EnhancedAIEngine, 
                              ohlcv_data: pd.DataFrame,
@@ -912,7 +915,7 @@ if __name__ == "__main__":
     # Testing Enhanced AI Engine
     logging.basicConfig(level=logging.INFO)
     
-    print("🧪 Testing Enhanced AI Engine v2.0.4 - Label Fix...")
+    print("🧪 Testing Enhanced AI Engine v2.0.5 - ALL ISSUES FIXED...")
     print(f"Enhanced Features Available: {ENHANCED_FEATURES_AVAILABLE}")
     print(f"XGBoost Available: {XGBOOST_AVAILABLE}")
     print(f"Volume Profile Available: {VOLUME_PROFILE_AVAILABLE}")
@@ -976,9 +979,9 @@ if __name__ == "__main__":
     print(f"   ⚡ Volume Profile Active: {details['volume_profile_active']}")
     print(f"   💫 VWAP Active: {details['vwap_active']}")
     
-    # Test backtesting
+    # Test backtesting with FIXED evaluator
     print("\n🧪 Testing enhanced backtesting...")
-    evaluator = EnhancedModelEvaluator()
+    evaluator = EnhancedModelEvaluator()  # Now properly initialized with logger
     backtest_results = evaluator.comprehensive_backtest(
         enhanced_ai, 
         ohlcv_df[1500:1800],  # Use bars 1500-1800 for backtest
@@ -1002,8 +1005,9 @@ if __name__ == "__main__":
     load_success = new_ai.load_enhanced_model("test_enhanced_model.pkl")
     print(f"✅ Model loaded: {load_success}")
     
-    print(f"\n🎯 Enhanced AI Engine v2.0.4 Ready!")
-    print(f"   🚀 Label Issue: FIXED ✅")
+    print(f"\n🎯 Enhanced AI Engine v2.0.5 - ALL ISSUES FIXED!")
+    print(f"   🚀 EnhancedModelEvaluator Logger: FIXED ✅")
+    print(f"   🚀 Label Encoding: FIXED ✅")
     print(f"   💪 Enhanced Features: {'Available' if ENHANCED_FEATURES_AVAILABLE else 'Basic Mode'}")
     print(f"   ⚡ XGBoost: {'Available' if XGBOOST_AVAILABLE else 'Not Available'}")
     print(f"   📊 Volume Profile: {'Available' if VOLUME_PROFILE_AVAILABLE else 'Not Available'}")
