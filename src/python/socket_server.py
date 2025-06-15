@@ -305,7 +305,7 @@ class EnhancedSocketServer:
             return {"error": str(e)}
     
     def handle_enhanced_prediction(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle enhanced prediction requests"""
+        """Handle enhanced prediction requests - FIXED JSON serialization"""
         try:
             symbol = request.get('symbol', 'EURUSD')
             timeframe = request.get('timeframe', 'M15')
@@ -352,20 +352,41 @@ class EnhancedSocketServer:
             if details.get('vwap_active', False):
                 self.stats['vwap_predictions'] += 1
             
-            # Enhanced response
+            # FIXED: Ensure all values are JSON serializable
+            def make_json_serializable(obj):
+                """Convert numpy/pandas types to native Python types"""
+                if isinstance(obj, (np.integer, np.int64, np.int32)):
+                    return int(obj)
+                elif isinstance(obj, (np.floating, np.float64, np.float32)):
+                    return float(obj)
+                elif isinstance(obj, np.bool_):
+                    return bool(obj)
+                elif isinstance(obj, dict):
+                    return {k: make_json_serializable(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [make_json_serializable(item) for item in obj]
+                elif hasattr(obj, 'item'):  # numpy scalar
+                    return obj.item()
+                else:
+                    return obj
+            
+            # Clean details to ensure JSON serialization
+            cleaned_details = make_json_serializable(details)
+            
+            # Enhanced response with FIXED serialization
             response = {
                 "signal": int(signal),
                 "confidence": float(confidence),
                 "timestamp": datetime.now().isoformat(),
-                "symbol": symbol,
-                "timeframe": timeframe,
+                "symbol": str(symbol),
+                "timeframe": str(timeframe),
                 "enhanced_features": {
-                    "volume_profile_active": details.get('volume_profile_active', False),
-                    "vwap_active": details.get('vwap_active', False),
-                    "feature_count": details.get('feature_count', 0),
-                    "individual_models": details.get('individual_models', {}),
-                    "raw_signal": details.get('raw_signal', signal),
-                    "filtered": details.get('raw_signal') != signal
+                    "volume_profile_active": bool(cleaned_details.get('volume_profile_active', False)),
+                    "vwap_active": bool(cleaned_details.get('vwap_active', False)),
+                    "feature_count": int(cleaned_details.get('feature_count', 0)),
+                    "individual_models": make_json_serializable(cleaned_details.get('individual_models', {})),
+                    "raw_signal": int(cleaned_details.get('raw_signal', signal)),
+                    "filtered": bool(cleaned_details.get('raw_signal', signal) != signal)
                 },
                 "server_version": "2.0.3"
             }

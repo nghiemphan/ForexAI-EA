@@ -714,30 +714,30 @@ class EnhancedAIEngine:
 
 # FIXED: Enhanced Model Evaluator with proper logger initialization
 class EnhancedModelEvaluator:
-    """Enhanced model evaluation with Volume Profile context - FIXED VERSION"""
+    """Enhanced model evaluation with Volume Profile context - COMPLETELY FIXED VERSION"""
     
     def __init__(self):
         """Initialize Enhanced Model Evaluator with logger - FIXED"""
         self.logger = logging.getLogger(__name__)
     
-    def comprehensive_backtest(self, ai_engine: EnhancedAIEngine, 
+    def comprehensive_backtest(self, ai_engine, 
                              ohlcv_data: pd.DataFrame,
                              initial_balance: float = 10000,
                              risk_per_trade: float = 0.02) -> Dict[str, Any]:
         """
-        Comprehensive backtesting with Volume Profile context
-        
-        Args:
-            ai_engine: Trained enhanced AI engine
-            ohlcv_data: Historical data for backtesting
-            initial_balance: Starting balance
-            risk_per_trade: Risk percentage per trade
-            
-        Returns:
-            Detailed backtesting results
+        FIXED: Comprehensive backtesting with proper error handling
         """
         try:
             self.logger.info("🧪 Starting enhanced backtesting...")
+            
+            # Validate inputs
+            if not hasattr(ai_engine, 'predict_enhanced'):
+                self.logger.error("AI engine missing predict_enhanced method")
+                return {'error': 'AI engine not properly configured'}
+            
+            if len(ohlcv_data) < 50:
+                self.logger.error("Insufficient data for backtesting")
+                return {'error': 'Insufficient data for backtesting'}
             
             balance = initial_balance
             position = 0  # 0 = no position, 1 = long, -1 = short
@@ -745,170 +745,205 @@ class EnhancedModelEvaluator:
             trades = []
             equity_curve = []
             
-            # Start backtesting from bar 200 (need history for features)
-            start_idx = 200
+            # Start backtesting from bar 30 (need history for features)
+            start_idx = 30
+            end_idx = len(ohlcv_data) - 5  # Leave some bars at the end
             
-            for i in range(start_idx, len(ohlcv_data) - 1):
-                current_data = ohlcv_data.iloc[:i+1]
-                current_price = current_data['close'].iloc[-1]
-                next_price = ohlcv_data['close'].iloc[i+1] if i+1 < len(ohlcv_data) else current_price
-                
-                # Get AI prediction
+            successful_predictions = 0
+            failed_predictions = 0
+            
+            for i in range(start_idx, end_idx):
                 try:
-                    signal, confidence, details = ai_engine.predict_enhanced(current_data)
+                    current_data = ohlcv_data.iloc[:i+1]
+                    current_price = current_data['close'].iloc[-1]
+                    
+                    # Get AI prediction with error handling
+                    try:
+                        signal, confidence, details = ai_engine.predict_enhanced(current_data)
+                        successful_predictions += 1
+                    except Exception as e:
+                        self.logger.warning(f"Prediction failed at bar {i}: {e}")
+                        signal, confidence = 0, 0.0
+                        failed_predictions += 1
+                        continue
+                    
+                    # Process trading logic
+                    if position == 0:  # No position
+                        if signal != 0 and confidence > 0.7:  # Higher threshold for backtest
+                            # Calculate position size
+                            risk_amount = balance * risk_per_trade
+                            
+                            # Simple position sizing
+                            if current_price > 0:
+                                position_size = risk_amount / (current_price * 0.01)  # 1% stop loss
+                            else:
+                                position_size = 0.01  # Fallback
+                            
+                            position = signal
+                            entry_price = current_price
+                            
+                            trade_record = {
+                                'entry_time': i,
+                                'entry_price': float(entry_price),
+                                'signal': int(signal),
+                                'confidence': float(confidence),
+                                'position_size': float(position_size)
+                            }
+                            trades.append(trade_record)
+                    
+                    elif position != 0:  # Have position
+                        # Check for exit conditions
+                        should_exit = False
+                        exit_reason = ""
+                        
+                        # Get next price for PnL calculation
+                        if i + 1 < len(ohlcv_data):
+                            next_price = ohlcv_data['close'].iloc[i+1]
+                        else:
+                            next_price = current_price
+                        
+                        # Opposite signal
+                        if signal != 0 and signal != position:
+                            should_exit = True
+                            exit_reason = "opposite_signal"
+                        
+                        # Stop loss / Take profit (simple)
+                        if entry_price > 0:
+                            pnl_pct = (next_price - entry_price) / entry_price * position
+                            if pnl_pct <= -0.02:  # 2% stop loss
+                                should_exit = True
+                                exit_reason = "stop_loss"
+                            elif pnl_pct >= 0.04:  # 4% take profit
+                                should_exit = True
+                                exit_reason = "take_profit"
+                        else:
+                            should_exit = True
+                            exit_reason = "invalid_entry_price"
+                        
+                        if should_exit and trades:
+                            # Close position
+                            trade = trades[-1]
+                            trade['exit_time'] = i
+                            trade['exit_price'] = float(next_price)
+                            trade['exit_reason'] = exit_reason
+                            
+                            # Calculate P&L safely
+                            if entry_price > 0 and 'position_size' in trade:
+                                pnl = (next_price - entry_price) * position * trade['position_size']
+                                trade['pnl'] = float(pnl)
+                                trade['pnl_pct'] = float((next_price - entry_price) / entry_price * position)
+                                balance += pnl
+                            else:
+                                trade['pnl'] = 0.0
+                                trade['pnl_pct'] = 0.0
+                            
+                            position = 0
+                            entry_price = 0
+                    
+                    # Record equity
+                    equity_curve.append({
+                        'time': i,
+                        'balance': float(balance),
+                        'price': float(current_price)
+                    })
+                    
                 except Exception as e:
-                    signal, confidence = 0, 0.0
+                    self.logger.warning(f"Error processing bar {i}: {e}")
                     continue
                 
-                # Process signal
-                if position == 0:  # No position
-                    if signal != 0 and confidence > 0.7:  # Higher threshold for backtest
-                        # Calculate position size
-                        risk_amount = balance * risk_per_trade
-                        
-                        # Simple position sizing (could be enhanced)
-                        position_size = risk_amount / (current_price * 0.01)  # 1% stop loss
-                        
-                        position = signal
-                        entry_price = current_price
-                        
-                        trade_record = {
-                            'entry_time': i,
-                            'entry_price': entry_price,
-                            'signal': signal,
-                            'confidence': confidence,
-                            'position_size': position_size,
-                            'volume_profile_active': details.get('volume_profile_active', False),
-                            'vwap_active': details.get('vwap_active', False),
-                            'enhanced_features': details.get('enhanced_features', False)
-                        }
-                        trades.append(trade_record)
-                
-                elif position != 0:  # Have position
-                    # Check for exit conditions
-                    should_exit = False
-                    exit_reason = ""
-                    
-                    # Opposite signal
-                    if signal != 0 and signal != position:
-                        should_exit = True
-                        exit_reason = "opposite_signal"
-                    
-                    # Stop loss / Take profit (simple)
-                    pnl_pct = (next_price - entry_price) / entry_price * position
-                    if pnl_pct <= -0.02:  # 2% stop loss
-                        should_exit = True
-                        exit_reason = "stop_loss"
-                    elif pnl_pct >= 0.04:  # 4% take profit
-                        should_exit = True
-                        exit_reason = "take_profit"
-                    
-                    if should_exit:
-                        # Close position
-                        trade = trades[-1]
-                        trade['exit_time'] = i
-                        trade['exit_price'] = next_price
-                        trade['exit_reason'] = exit_reason
-                        
-                        # Calculate P&L
-                        pnl = (next_price - entry_price) * position * trade['position_size']
-                        trade['pnl'] = pnl
-                        trade['pnl_pct'] = pnl_pct
-                        
-                        balance += pnl
-                        position = 0
-                        entry_price = 0
-                
-                # Record equity
-                equity_curve.append({
-                    'time': i,
-                    'balance': balance,
-                    'price': current_price
-                })
-                
-                if i % 100 == 0:
+                if i % 50 == 0:
                     self.logger.info(f"Processed {i - start_idx} bars...")
             
             # Calculate performance metrics
             completed_trades = [t for t in trades if 'exit_price' in t]
             
             if not completed_trades:
-                return {'error': 'No completed trades in backtest period'}
+                self.logger.warning("No completed trades in backtest period")
+                return {
+                    'total_return': 0.0,
+                    'total_trades': 0,
+                    'winning_trades': 0,
+                    'losing_trades': 0,
+                    'win_rate': 0.0,
+                    'profit_factor': 0.0,
+                    'max_drawdown': 0.0,
+                    'final_balance': float(balance),
+                    'successful_predictions': successful_predictions,
+                    'failed_predictions': failed_predictions,
+                    'prediction_success_rate': successful_predictions / max(successful_predictions + failed_predictions, 1),
+                    'error': 'No completed trades'
+                }
             
             # Performance calculations
             total_trades = len(completed_trades)
-            winning_trades = len([t for t in completed_trades if t['pnl'] > 0])
+            winning_trades = len([t for t in completed_trades if t.get('pnl', 0) > 0])
             losing_trades = total_trades - winning_trades
             
             win_rate = winning_trades / total_trades if total_trades > 0 else 0
             
-            total_pnl = sum(t['pnl'] for t in completed_trades)
+            total_pnl = sum(t.get('pnl', 0) for t in completed_trades)
             total_return = (balance - initial_balance) / initial_balance
             
-            winning_pnls = [t['pnl'] for t in completed_trades if t['pnl'] > 0]
-            losing_pnls = [t['pnl'] for t in completed_trades if t['pnl'] <= 0]
+            winning_pnls = [t['pnl'] for t in completed_trades if t.get('pnl', 0) > 0]
+            losing_pnls = [t['pnl'] for t in completed_trades if t.get('pnl', 0) <= 0]
             
             avg_win = np.mean(winning_pnls) if winning_pnls else 0
             avg_loss = np.mean(losing_pnls) if losing_pnls else 0
             
-            profit_factor = abs(sum(winning_pnls) / sum(losing_pnls)) if losing_pnls else float('inf')
+            profit_factor = abs(sum(winning_pnls) / sum(losing_pnls)) if losing_pnls and sum(losing_pnls) != 0 else float('inf')
             
             # Drawdown calculation
             equity_values = [e['balance'] for e in equity_curve]
-            peak = equity_values[0]
-            max_drawdown = 0
-            
-            for equity in equity_values:
-                if equity > peak:
-                    peak = equity
-                drawdown = (peak - equity) / peak
-                max_drawdown = max(max_drawdown, drawdown)
-            
-            # Enhanced metrics with feature context
-            enhanced_trades = [t for t in completed_trades if t.get('enhanced_features', False)]
-            vp_trades = [t for t in completed_trades if t.get('volume_profile_active', False)]
-            vwap_trades = [t for t in completed_trades if t.get('vwap_active', False)]
+            if equity_values:
+                peak = equity_values[0]
+                max_drawdown = 0
+                
+                for equity in equity_values:
+                    if equity > peak:
+                        peak = equity
+                    drawdown = (peak - equity) / peak if peak > 0 else 0
+                    max_drawdown = max(max_drawdown, drawdown)
+            else:
+                max_drawdown = 0
             
             results = {
-                'total_return': total_return,
-                'total_pnl': total_pnl,
-                'total_trades': total_trades,
-                'winning_trades': winning_trades,
-                'losing_trades': losing_trades,
-                'win_rate': win_rate,
-                'profit_factor': profit_factor,
-                'avg_win': avg_win,
-                'avg_loss': avg_loss,
-                'max_drawdown': max_drawdown,
-                'final_balance': balance,
-                'enhanced_features': {
-                    'enhanced_trades': len(enhanced_trades),
-                    'volume_profile_trades': len(vp_trades),
-                    'vwap_trades': len(vwap_trades),
-                    'enhanced_win_rate': len([t for t in enhanced_trades if t['pnl'] > 0]) / len(enhanced_trades) if enhanced_trades else 0,
-                    'vp_win_rate': len([t for t in vp_trades if t['pnl'] > 0]) / len(vp_trades) if vp_trades else 0,
-                    'vwap_win_rate': len([t for t in vwap_trades if t['pnl'] > 0]) / len(vwap_trades) if vwap_trades else 0
-                },
-                'trades': completed_trades[-10:],  # Last 10 trades for analysis
-                'equity_curve': equity_curve[-100:],  # Last 100 equity points
-                'system_info': {
-                    'enhanced_features_available': ENHANCED_FEATURES_AVAILABLE,
-                    'xgboost_available': XGBOOST_AVAILABLE,
-                    'volume_profile_available': VOLUME_PROFILE_AVAILABLE
-                }
+                'total_return': float(total_return),
+                'total_pnl': float(total_pnl),
+                'total_trades': int(total_trades),
+                'winning_trades': int(winning_trades),
+                'losing_trades': int(losing_trades),
+                'win_rate': float(win_rate),
+                'profit_factor': float(profit_factor) if profit_factor != float('inf') else 999.0,
+                'avg_win': float(avg_win),
+                'avg_loss': float(avg_loss),
+                'max_drawdown': float(max_drawdown),
+                'final_balance': float(balance),
+                'successful_predictions': int(successful_predictions),
+                'failed_predictions': int(failed_predictions),
+                'prediction_success_rate': float(successful_predictions / max(successful_predictions + failed_predictions, 1)),
+                'trades_sample': completed_trades[-5:] if len(completed_trades) >= 5 else completed_trades,  # Last 5 trades
+                'equity_curve_sample': equity_curve[-20:] if len(equity_curve) >= 20 else equity_curve  # Last 20 points
             }
             
             self.logger.info("✅ Enhanced backtesting complete!")
             self.logger.info(f"   📊 Total Return: {total_return:.4f}")
             self.logger.info(f"   📈 Win Rate: {win_rate:.4f}")
-            self.logger.info(f"   💰 Profit Factor: {profit_factor:.4f}")
+            self.logger.info(f"   💰 Profit Factor: {results['profit_factor']:.4f}")
             self.logger.info(f"   📉 Max Drawdown: {max_drawdown:.4f}")
             
             return results
             
         except Exception as e:
             self.logger.error(f"Enhanced backtesting failed: {e}")
-            raise
+            return {
+                'error': str(e),
+                'total_return': 0.0,
+                'total_trades': 0,
+                'win_rate': 0.0,
+                'profit_factor': 0.0,
+                'max_drawdown': 0.0,
+                'final_balance': float(initial_balance)
+            }
 
 
 if __name__ == "__main__":
