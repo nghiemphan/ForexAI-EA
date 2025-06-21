@@ -390,7 +390,7 @@ class EnhancedSocketServer:
         """Enhanced response sending with chunking support"""
         try:
             response_json = json.dumps(response, ensure_ascii=False)
-            response_bytes = response_json.encode('utf-8')
+            response_bytes = response_json.encode('utf-8', errors='replace')
             
             # If response is large, use chunked sending
             if len(response_bytes) > self.server_config['chunk_size']:
