@@ -28,7 +28,7 @@ try:
     from enhanced_feature_engineer import EnhancedFeatureEngineer
     from enhanced_ai_engine import EnhancedAIEngine, SessionAwarePrediction
     ENHANCED_MODULES_AVAILABLE = True
-    print("✅ Enhanced modules v2.2.0 imported successfully")
+    print(" Enhanced modules v2.2.0 imported successfully")
 except ImportError as e:
     print(f"Warning: Enhanced modules not available: {e}")
     ENHANCED_MODULES_AVAILABLE = False
@@ -117,12 +117,12 @@ class EnhancedSocketServer:
             self.feature_engineer = EnhancedFeatureEngineer(symbol, timeframe)
             self.ai_engine = EnhancedAIEngine(symbol, timeframe)
             self.logger = self._setup_enhanced_logging()
-            self.logger.info("✅ Enhanced Socket Server v2.2.0 initialized with session intelligence")
+            self.logger.info(" Enhanced Socket Server v2.2.0 initialized with session intelligence")
         else:
             self.feature_engineer = None
             self.ai_engine = None
             self.logger = self._setup_basic_logging()
-            self.logger.warning("⚠️ Running in fallback mode without enhanced features")
+            self.logger.warning(" Running in fallback mode without enhanced features")
         
         # Server state management
         self.socket = None
@@ -238,11 +238,11 @@ class EnhancedSocketServer:
             self.running = True
             self.stats.uptime_start = datetime.now()
             
-            self.logger.info(f"🚀 Enhanced Socket Server v2.2.0 started on {self.host}:{self.port}")
-            self.logger.info(f"   📊 Features: 106+ with session intelligence")
-            self.logger.info(f"   🎯 Target Accuracy: {self.stats.accuracy_target:.0%}")
-            self.logger.info(f"   🌍 Session Analysis: {'Enabled' if self.server_config['session_analysis_enabled'] else 'Disabled'}")
-            self.logger.info(f"   📡 Max Connections: {self.server_config['max_connections']}")
+            self.logger.info(f" Enhanced Socket Server v2.2.0 started on {self.host}:{self.port}")
+            self.logger.info(f"    Features: 106+ with session intelligence")
+            self.logger.info(f"    Target Accuracy: {self.stats.accuracy_target:.0%}")
+            self.logger.info(f"    Session Analysis: {'Enabled' if self.server_config['session_analysis_enabled'] else 'Disabled'}")
+            self.logger.info(f"    Max Connections: {self.server_config['max_connections']}")
             
             while self.running:
                 try:
@@ -1045,7 +1045,7 @@ class EnhancedSocketServer:
             
             if training_results.get('ensemble_accuracy', 0) > 0:
                 self.model_trained = True
-                self.logger.info(f"✅ Enhanced model training completed: {training_results.get('ensemble_accuracy', 0):.4f} accuracy")
+                self.logger.info(f" Enhanced model training completed: {training_results.get('ensemble_accuracy', 0):.4f} accuracy")
             
             return {
                 'success': True,
@@ -1131,7 +1131,7 @@ class EnhancedSocketServer:
             
             if success:
                 self.model_trained = True
-                self.logger.info(f"✅ Enhanced model loaded from {filepath}")
+                self.logger.info(f" Enhanced model loaded from {filepath}")
             
             return {
                 'success': success,
@@ -1720,20 +1720,20 @@ def main():
         timeframe=args.timeframe
     )
     
-    print(f"🚀 Starting Enhanced Socket Server v2.2.0...")
-    print(f"   📊 Features: 106+ with session intelligence")
-    print(f"   🎯 Target Accuracy: 80%+")
-    print(f"   🌍 Session Analysis: Enabled")
-    print(f"   📡 Address: {args.host}:{args.port}")
-    print(f"   💱 Symbol: {args.symbol} ({args.timeframe})")
-    print(f"   🔧 Enhanced Modules: {'Available' if ENHANCED_MODULES_AVAILABLE else 'Fallback Mode'}")
+    print(f" Starting Enhanced Socket Server v2.2.0...")
+    print(f"    Features: 106+ with session intelligence")
+    print(f"    Target Accuracy: 80%+")
+    print(f"    Session Analysis: Enabled")
+    print(f"    Address: {args.host}:{args.port}")
+    print(f"    Symbol: {args.symbol} ({args.timeframe})")
+    print(f"    Enhanced Modules: {'Available' if ENHANCED_MODULES_AVAILABLE else 'Fallback Mode'}")
     
     try:
         server.start()
     except KeyboardInterrupt:
-        print("\n🛑 Shutting down Enhanced Socket Server v2.2.0...")
+        print("\n Shutting down Enhanced Socket Server v2.2.0...")
         server.stop()
-        print("✅ Server stopped successfully")
+        print(" Server stopped successfully")
 
 
 if __name__ == "__main__":
