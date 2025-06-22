@@ -2,7 +2,7 @@
 File: src/python/enhanced_ai_engine.py
 Description: Enhanced AI Engine v2.2.0 - Session-Aware with 106+ Features (FIXED)
 Author: Claude AI Developer
-Version: 2.2.0 - SESSION ENHANCED AI ENGINE (FIXED)
+Version: 2.2.0 - SESSION ENHANCED AI ENGINE (PRODUCTION READY)
 Created: 2025-06-15
 Modified: 2025-06-15
 Target: 80%+ AI accuracy with session intelligence
@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import warnings
 warnings.filterwarnings('ignore')
 
-# Machine Learning imports
+# Machine Learning imports with proper error handling
 try:
     from sklearn.ensemble import RandomForestClassifier, VotingClassifier
     from sklearn.linear_model import LogisticRegression
@@ -61,7 +61,7 @@ except ImportError as e:
         def fit_transform(self, X): return X
         def transform(self, X): return X
 
-# Import our enhanced feature engineer
+# Import enhanced feature engineer with error handling
 try:
     from enhanced_feature_engineer import EnhancedFeatureEngineer
     FEATURE_ENGINEER_AVAILABLE = True
@@ -76,7 +76,7 @@ except ImportError:
 
 @dataclass
 class SessionAwarePrediction:
-    """Session-aware prediction result"""
+    """Session-aware prediction result with comprehensive context"""
     signal: int  # -1: Sell, 0: Hold, 1: Buy
     confidence: float  # 0.0-1.0
     session_context: Dict[str, float]
@@ -92,7 +92,7 @@ class EnhancedAIEngine:
     """
     Enhanced AI Engine v2.2.0 - Session-Aware Trading Intelligence
     
-    Features:
+    Key Features:
     - 106+ feature support (Technical + VP + VWAP + SMC + Session)
     - Enhanced ensemble voting with session weights
     - Session-aware filtering system
@@ -901,12 +901,20 @@ class EnhancedAIEngine:
             'version': '2.2.0'
         }
 
-# Enhanced Model Evaluator for v2.2.0
+
+# Enhanced Model Evaluator for v2.2.0 with proper logger initialization
 class SessionEnhancedEvaluator:
     """Enhanced evaluator for session-aware AI with 106+ features"""
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
+        if not self.logger.handlers:
+            # Initialize logger if not already set up
+            self.logger.setLevel(logging.INFO)
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
     
     def comprehensive_session_backtest(self, ai_engine: EnhancedAIEngine,
                                      ohlcv_data: pd.DataFrame,
@@ -1336,7 +1344,7 @@ if __name__ == "__main__":
         print(f"\n📊 Training Results:")
         print(f"   🎯 Ensemble Accuracy: {training_results['ensemble_accuracy']:.4f} (target: 0.80)")
         print(f"   📈 Cross-validation: {training_results['cv_mean']:.4f} ± {training_results['cv_std']:.4f}")
-Total Features: {training_results['total_features']}/106+ {'✅' if training_results['total_features'] >= 106 else '⚠️'}")
+        print(f"   🔥 Total Features: {training_results['total_features']}/106+ {'✅' if training_results['total_features'] >= 106 else '⚠️'}")
         print(f"   🌍 Session Features: {training_results['session_features']}/18+ {'✅' if training_results['session_features'] >= 18 else '⚠️'}")
         print(f"   🏢 SMC Features: {training_results['smc_features']}/23+ {'✅' if training_results['smc_features'] >= 23 else '⚠️'}")
         print(f"   🎯 Target Achieved: {training_results['target_achieved']}")
