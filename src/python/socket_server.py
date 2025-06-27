@@ -411,6 +411,13 @@ class EnhancedSocketServer:
                 
         except Exception as e:
             self.logger.error(f"Enhanced response send error: {e}")
+
+    def _cleanup_old_data(self):
+        """Memory cleanup for long-running server"""
+        if len(self.response_times) > 1000:
+            self.response_times = self.response_times[-1000:]
+        if len(self.session_response_times) > 1000:
+            self.session_response_times = self.session_response_times[-1000:]
     
     def _process_enhanced_request(self, request: Dict[str, Any], client_id: str) -> Dict[str, Any]:
         """Process request with enhanced v2.2.0 features"""
